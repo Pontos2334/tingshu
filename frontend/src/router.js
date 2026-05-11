@@ -1,4 +1,5 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter } from 'vue-router'
+import { createStableWebHistory } from './router-history'
 
 const routes = [
   { path: '/', name: 'Workbench', component: () => import('./views/WorkbenchView.vue') },
@@ -11,6 +12,6 @@ const routes = [
 ]
 
 export default createRouter({
-  history: createWebHistory(),
+  history: createStableWebHistory(),
   routes,
 })

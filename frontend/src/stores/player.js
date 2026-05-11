@@ -59,8 +59,23 @@ export const usePlayerStore = defineStore('player', () => {
     el.addEventListener('ended', playNext)
   }
 
+  async function attemptPlayback(options = {}) {
+    if (!audio.value) return false
+    if (options.requireVisible && typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      isPlaying.value = false
+      return false
+    }
+    try {
+      await Promise.resolve(audio.value.play())
+      return true
+    } catch {
+      isPlaying.value = false
+      return false
+    }
+  }
+
   function play(trackOrId, meta = {}) {
-    if (!audio.value) return
+    if (!audio.value) return Promise.resolve(false)
     revokeObjectUrl()
     const track = normalizeTrack(trackOrId, meta)
     currentId.value = track.id
@@ -68,7 +83,19 @@ export const usePlayerStore = defineStore('player', () => {
     currentSourceType.value = track.sourceType
     currentSourceUrl.value = getAudioUrl(track.id)
     audio.value.src = currentSourceUrl.value
-    audio.value.play()
+    return attemptPlayback()
+  }
+
+  function playWhenVisible(trackOrId, meta = {}) {
+    if (!audio.value) return Promise.resolve(false)
+    revokeObjectUrl()
+    const track = normalizeTrack(trackOrId, meta)
+    currentId.value = track.id
+    currentTitle.value = track.title
+    currentSourceType.value = track.sourceType
+    currentSourceUrl.value = getAudioUrl(track.id)
+    audio.value.src = currentSourceUrl.value
+    return attemptPlayback({ requireVisible: true })
   }
 
   function pause() {
@@ -78,9 +105,7 @@ export const usePlayerStore = defineStore('player', () => {
   }
 
   function resume() {
-    if (audio.value) {
-      audio.value.play()
-    }
+    return attemptPlayback()
   }
 
   function stop() {
@@ -104,7 +129,7 @@ export const usePlayerStore = defineStore('player', () => {
   }
 
   function playBlob(blob, meta = {}) {
-    if (!audio.value) return
+    if (!audio.value) return Promise.resolve(false)
     revokeObjectUrl()
     const url = URL.createObjectURL(blob)
     objectUrl.value = url
@@ -113,18 +138,18 @@ export const usePlayerStore = defineStore('player', () => {
     currentSourceType.value = meta.sourceType || 'preview'
     currentSourceUrl.value = url
     audio.value.src = url
-    audio.value.play()
+    return attemptPlayback({ requireVisible: meta.requireVisible })
   }
 
   function playUrl(url, meta = {}) {
-    if (!audio.value) return
+    if (!audio.value) return Promise.resolve(false)
     revokeObjectUrl()
     currentId.value = null
     currentTitle.value = meta.title || '外部音频'
     currentSourceType.value = meta.sourceType || 'external'
     currentSourceUrl.value = url
     audio.value.src = url
-    audio.value.play()
+    return attemptPlayback({ requireVisible: meta.requireVisible })
   }
 
   function setQueue(items, context = null) {
@@ -150,6 +175,6 @@ export const usePlayerStore = defineStore('player', () => {
 
   return {
     currentId, currentTitle, currentSourceType, currentSourceUrl, isPlaying, currentTime, duration, playbackRate, queue, queueContext, hasSource,
-    setAudio, play, playBlob, playUrl, pause, resume, stop, seek, setRate, setQueue, playNext, playPrev,
+    setAudio, play, playWhenVisible, playBlob, playUrl, pause, resume, stop, seek, setRate, setQueue, playNext, playPrev,
   }
 })

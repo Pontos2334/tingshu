@@ -524,10 +524,14 @@ async function handlePreview() {
   previewing.value = true
   try {
     const { data } = await preview(buildSynthesisPayload(text))
-    player.playBlob(data, {
+    const startedPlayback = await player.playBlob(data, {
       title: `${voiceSelection.value} 试听`,
       sourceType: 'preview',
+      requireVisible: true,
     })
+    if (!startedPlayback) {
+      ElMessage.success('试听已准备好，回到页面后可直接点底部播放器播放')
+    }
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '试听失败')
   } finally {
@@ -551,8 +555,8 @@ async function startSynthesis(text) {
     if (text.length <= 200) {
       const { data } = await synthesize(buildSynthesisPayload(text))
       player.setQueue([{ id: data.id, title: data.title, sourceType: 'record' }], { label: '单条合成结果' })
-      player.play({ id: data.id, title: data.title, sourceType: 'record' })
-      ElMessage.success('合成成功，已经送入播放器')
+      const startedPlayback = await player.playWhenVisible({ id: data.id, title: data.title, sourceType: 'record' })
+      ElMessage.success(startedPlayback ? '合成成功，已经送入播放器' : '合成成功，结果已加入播放器')
       workflow.clearTaskState()
       return
     }
@@ -593,7 +597,7 @@ function connectSse(taskId) {
   eventSource.onmessage = ({ data }) => {
     try {
       const payload = JSON.parse(data)
-      handleTaskEvent(payload)
+      void handleTaskEvent(payload)
     } catch {
       // ignore malformed payload
     }
@@ -603,7 +607,7 @@ function connectSse(taskId) {
   }
 }
 
-function handleTaskEvent(payload) {
+async function handleTaskEvent(payload) {
   if (payload.type === 'snapshot') {
     workflow.updateTaskSnapshot({
       ...payload.task,
@@ -658,14 +662,23 @@ function handleTaskEvent(payload) {
     snapshot.status = payload.status
     snapshot.record_ids = payload.record_ids || []
     closeSse()
+    let startedPlayback = false
     if (payload.record_ids?.length) {
       player.setQueue(
         payload.record_ids.map(id => ({ id, title: snapshot.title, sourceType: 'record' })),
         { label: '长文本合成结果' }
       )
-      player.play({ id: payload.record_ids[0], title: snapshot.title, sourceType: 'record' })
+      startedPlayback = await player.playWhenVisible({
+        id: payload.record_ids[0],
+        title: snapshot.title,
+        sourceType: 'record',
+      })
     }
-    ElMessage.success(payload.failed ? '任务完成，但有失败段' : '长文本合成完成')
+    if (!startedPlayback && payload.record_ids?.length) {
+      ElMessage.success(payload.failed ? '任务完成，但有失败段，结果已加入播放队列' : '长文本合成完成，结果已加入播放队列')
+    } else {
+      ElMessage.success(payload.failed ? '任务完成，但有失败段' : '长文本合成完成')
+    }
   }
 
   if (payload.type === 'task_canceled') {
