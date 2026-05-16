@@ -3,6 +3,14 @@ import { ref, watch } from 'vue'
 
 const STORAGE_KEY = 'tingshu_workflow'
 
+function debounce(fn, ms) {
+  let timer = null
+  return (...args) => {
+    clearTimeout(timer)
+    timer = setTimeout(() => fn(...args), ms)
+  }
+}
+
 function readPersistedState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -24,9 +32,12 @@ export const useWorkflowStore = defineStore('workflow', () => {
   const taskSnapshot = ref(persisted.taskSnapshot || null)
   const recentOutputs = ref(Array.isArray(persisted.recentOutputs) ? persisted.recentOutputs : [])
 
-  watch(
-    [draftText, selectedVoice, selectedVoiceId, styles, chunkSize, currentTaskId, taskSnapshot, recentOutputs],
-    () => {
+  // SSE 连接状态（不持久化）
+  const sseConnected = ref(false)
+  const sseReconnecting = ref(false)
+
+  const persistState = debounce(() => {
+    try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         draftText: draftText.value,
         selectedVoice: selectedVoice.value,
@@ -37,7 +48,12 @@ export const useWorkflowStore = defineStore('workflow', () => {
         taskSnapshot: taskSnapshot.value,
         recentOutputs: recentOutputs.value,
       }))
-    },
+    } catch { /* quota exceeded */ }
+  }, 300)
+
+  watch(
+    [draftText, selectedVoice, selectedVoiceId, styles, chunkSize, currentTaskId, taskSnapshot, recentOutputs],
+    persistState,
     { deep: true }
   )
 
@@ -76,6 +92,11 @@ export const useWorkflowStore = defineStore('workflow', () => {
     recentOutputs.value = [output, ...recentOutputs.value.filter(item => item.id !== output.id)].slice(0, 8)
   }
 
+  function setSseState(connected, reconnecting = false) {
+    sseConnected.value = connected
+    sseReconnecting.value = reconnecting
+  }
+
   return {
     draftText,
     selectedVoice,
@@ -85,6 +106,8 @@ export const useWorkflowStore = defineStore('workflow', () => {
     currentTaskId,
     taskSnapshot,
     recentOutputs,
+    sseConnected,
+    sseReconnecting,
     setDraftText,
     setVoiceSelection,
     setStyles,
@@ -93,5 +116,6 @@ export const useWorkflowStore = defineStore('workflow', () => {
     clearTaskState,
     updateTaskSnapshot,
     addRecentOutput,
+    setSseState,
   }
 })

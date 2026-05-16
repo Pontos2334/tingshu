@@ -46,6 +46,7 @@ describe('workflow store', () => {
       })
     }
     await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 350))
 
     const persisted = JSON.parse(localStorage.getItem('tingshu_workflow'))
     expect(persisted.currentTaskId).toBe('task-99')

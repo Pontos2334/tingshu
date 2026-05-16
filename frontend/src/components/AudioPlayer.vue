@@ -149,4 +149,31 @@ function formatTime(seconds) {
   align-items: center;
   color: #64748b;
 }
+
+@media (max-width: 1100px) {
+  .audio-player {
+    grid-template-columns: minmax(160px, 1.3fr) auto minmax(200px, 2fr) minmax(160px, 0.9fr);
+    gap: 12px;
+  }
+}
+
+@media (max-width: 900px) {
+  .audio-player {
+    grid-template-columns: 1fr auto 1fr;
+    gap: 10px;
+  }
+  .toolbar {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .audio-player {
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+  .progress {
+    display: none;
+  }
+}
 </style>

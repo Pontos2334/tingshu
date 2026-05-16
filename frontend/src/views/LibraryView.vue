@@ -1,15 +1,15 @@
 <template>
   <div class="library-page">
     <div class="library-grid">
-      <section class="surface">
-        <div class="surface-header">
+      <section class="surface-card library-main">
+        <div class="card-header">
           <div>
             <h2>音频库</h2>
-            <p>按长文本分组聚合，先看一条作品，再展开看分段细节。</p>
+            <p>按长文本分组聚合，先看作品整体，再看分段细节。</p>
           </div>
-          <div class="surface-actions">
-            <el-input v-model="query.keyword" placeholder="搜索标题、音色或正文" clearable class="search-input" @keyup.enter="reloadGroups" />
-            <el-switch v-model="query.favoriteOnly" inline-prompt active-text="收藏" inactive-text="全部" @change="reloadGroups" />
+          <div class="header-actions">
+            <el-input v-model="query.keyword" placeholder="搜索标题、音色或正文" clearable class="search-input" @keyup.enter="onSearchEnter" />
+            <el-switch v-model="query.favoriteOnly" inline-prompt active-text="收藏" inactive-text="全部" @change="onFilterChange" />
             <el-button @click="reloadGroups" :loading="groupsLoading">刷新</el-button>
           </div>
         </div>
@@ -19,36 +19,21 @@
           <el-button link type="primary" @click="reloadGroups">重试</el-button>
         </div>
 
-        <el-table v-else :data="groups" row-key="group_id" empty-text="还没有音频结果">
-          <el-table-column prop="title" label="标题" min-width="280" show-overflow-tooltip />
-          <el-table-column prop="voice_name" label="音色" width="130" />
-          <el-table-column label="片段" width="90">
+        <el-table v-else :data="groups" row-key="group_id" empty-text="还没有音频结果" style="width: 100%">
+          <el-table-column prop="title" label="标题" min-width="240" show-overflow-tooltip />
+          <el-table-column prop="voice_name" label="音色" width="120" />
+          <el-table-column label="片段" width="80">
             <template #default="{ row }">{{ row.clip_count }}</template>
           </el-table-column>
-          <el-table-column label="总时长" width="110">
+          <el-table-column label="时长" width="100">
             <template #default="{ row }">{{ formatDuration(row.total_duration) }}</template>
           </el-table-column>
-          <el-table-column label="来源" width="100">
-            <template #default="{ row }">
-              <el-tag size="small" :type="row.source_type === 'long_text' ? 'primary' : 'info'">
-                {{ row.source_type === 'long_text' ? '长文本' : '单条' }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="收藏" width="90">
-            <template #default="{ row }">
-              <el-tag size="small" :type="row.has_favorite ? 'warning' : 'info'">{{ row.has_favorite ? '已收藏' : '未收藏' }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="时间" width="170">
-            <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
-          </el-table-column>
-          <el-table-column label="操作" width="320" fixed="right">
+          <el-table-column label="操作" width="280" fixed="right">
             <template #default="{ row }">
               <el-button size="small" @click="openGroup(row.group_id)">详情</el-button>
               <el-button size="small" type="success" @click="playGroup(row.group_id)">播放</el-button>
-              <el-button size="small" :disabled="!selectedPlaylistId" @click="addGroupToPlaylist(row.group_id)">加入当前列表</el-button>
-              <el-button size="small" type="danger" @click="deleteGroupItem(row)">删除</el-button>
+              <el-button size="small" :disabled="!selectedPlaylistId" :loading="addingGroupId === row.group_id" @click="addGroupToPlaylist(row.group_id)">加入列表</el-button>
+              <el-button size="small" link type="danger" @click="deleteGroupItem(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -65,54 +50,53 @@
         </div>
       </section>
 
-      <aside class="surface side-surface">
-        <div class="surface-header">
-          <div>
-            <h2>播放列表</h2>
-            <p>选定一个当前列表后，音频库里的“加入”操作都会落到这里。</p>
-          </div>
-          <el-button type="primary" @click="createDialogOpen = true">新建列表</el-button>
-        </div>
-
-        <el-empty v-if="!playlists.length" description="还没有播放列表" :image-size="90" />
-
-        <div v-else class="playlist-stack">
-          <button
-            v-for="playlist in playlists"
-            :key="playlist.id"
-            class="playlist-button"
-            :class="{ active: playlist.id === selectedPlaylistId }"
-            @click="selectPlaylist(playlist.id)"
-          >
-            <span>{{ playlist.name }}</span>
-            <span>{{ playlist.description || '未填写描述' }}</span>
-          </button>
-        </div>
-
-        <div v-if="selectedPlaylist" class="playlist-detail">
-          <div class="playlist-detail-header">
+      <aside class="library-side">
+        <section class="surface-card side-section">
+          <div class="card-header">
             <div>
-              <div class="detail-title">{{ selectedPlaylist.name }}</div>
-              <div class="detail-subtitle">{{ selectedPlaylist.description || '当前接收列表' }}</div>
+              <h2 class="section-title">播放列表</h2>
+              <p class="section-subtitle">管理您的收听清单</p>
             </div>
-            <el-button type="danger" plain size="small" @click="deletePlaylistItem(selectedPlaylist)">删除</el-button>
+            <el-button type="primary" size="small" @click="createDialogOpen = true">新建</el-button>
           </div>
 
-          <el-table :data="playlistTracks" size="small" empty-text="这个列表还是空的">
-            <el-table-column label="标题" min-width="180">
+          <el-empty v-if="!playlists.length" description="暂无列表" :image-size="60" />
+
+          <div v-else class="playlist-stack">
+            <button
+              v-for="playlist in playlists"
+              :key="playlist.id"
+              class="playlist-button"
+              :class="{ active: playlist.id === selectedPlaylistId }"
+              @click="selectPlaylist(playlist.id)"
+            >
+              <span class="playlist-name">{{ playlist.name }}</span>
+              <span class="playlist-desc">{{ playlist.description || '无描述' }}</span>
+            </button>
+          </div>
+        </section>
+
+        <section v-if="selectedPlaylist" class="surface-card side-section playlist-detail-section">
+          <div class="card-header">
+            <div>
+              <h2 class="section-title">{{ selectedPlaylist.name }}</h2>
+              <p class="section-subtitle">{{ playlistTracks.length }} 首曲目</p>
+            </div>
+            <el-button type="danger" link size="small" @click="deletePlaylistItem(selectedPlaylist)">删除列表</el-button>
+          </div>
+
+          <el-table :data="playlistTracks" size="small" empty-text="列表为空" style="width: 100%">
+            <el-table-column label="标题" min-width="140" show-overflow-tooltip>
               <template #default="{ row }">{{ row.audio.title }}</template>
             </el-table-column>
-            <el-table-column label="时长" width="100">
-              <template #default="{ row }">{{ formatDuration(row.audio.duration) }}</template>
-            </el-table-column>
-            <el-table-column label="操作" width="150">
+            <el-table-column label="操作" width="100" fixed="right">
               <template #default="{ row }">
-                <el-button size="small" @click="playTrack(row.audio)">播放</el-button>
-                <el-button size="small" type="danger" @click="removePlaylistTrack(row)">移除</el-button>
+                <el-button size="small" link @click="playTrack(row.audio)">播放</el-button>
+                <el-button size="small" link type="danger" @click="removePlaylistTrack(row)">移除</el-button>
               </template>
             </el-table-column>
           </el-table>
-        </div>
+        </section>
       </aside>
     </div>
 
@@ -154,8 +138,38 @@
 
         <div class="surface-actions detail-actions">
           <el-button type="success" @click="playGroup(groupDetail.group_id)">播放整组</el-button>
-          <el-button :disabled="!selectedPlaylistId" @click="addGroupToPlaylist(groupDetail.group_id)">加入当前列表</el-button>
+          <el-button :disabled="!selectedPlaylistId" :loading="addingGroupId === groupDetail.group_id" @click="addGroupToPlaylist(groupDetail.group_id)">加入当前列表</el-button>
           <el-button type="danger" @click="deleteGroupItem(groupDetail)">删除整组</el-button>
+        </div>
+
+        <div class="merge-section">
+          <el-button
+            v-if="groupDetail.clip_count > 1 && !mergeStatus.merging && !groupDetail.has_merged"
+            type="primary"
+            @click="handleMerge(groupDetail.group_id)"
+          >
+            合并为完整音频
+          </el-button>
+
+          <el-tag v-if="groupDetail.clip_count <= 1" type="info">单条音频，无需合并</el-tag>
+
+          <div v-if="mergeStatus.merging" class="merge-progress">
+            <el-progress :percentage="mergeStatus.progress" :status="mergeStatus.error ? 'exception' : ''" />
+            <span class="merge-step">{{ mergeStatus.stepLabel }}</span>
+          </div>
+
+          <div v-if="groupDetail.merged_record" class="merged-file-card">
+            <div class="merged-file-info">
+              <el-tag type="success" size="small">已合并</el-tag>
+              <span class="merged-title">{{ groupDetail.merged_record.title }}</span>
+              <span class="merged-meta">{{ formatDuration(groupDetail.merged_record.duration) }} · {{ formatFileSize(groupDetail.merged_record.file_size) }}</span>
+            </div>
+            <div class="merged-file-actions">
+              <el-button size="small" type="success" @click="playTrack(groupDetail.merged_record)">播放</el-button>
+              <el-button size="small" @click="downloadRecord(groupDetail.merged_record)">下载</el-button>
+              <el-button size="small" link type="danger" @click="deleteMerged(groupDetail.group_id)">删除合并文件</el-button>
+            </div>
+          </div>
         </div>
 
         <el-table :data="groupDetail.records" empty-text="没有可展示的片段">
@@ -185,9 +199,10 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { addTrack, createPlaylist, deletePlaylist, getPlaylists, getTracks, removeTrack } from '../api/playlists'
-import { deleteAudioGroup, getAudioGroup, getAudioGroups, getAudioUrl, toggleFavorite } from '../api/audio'
+import { deleteAudioGroup, getAudioGroup, getAudioGroups, getAudioUrl, toggleFavorite, mergeAudioGroup, getMergeEventsUrl, deleteMergedRecord } from '../api/audio'
+import { friendlyError } from '../api/index'
 import { formatDate, formatDuration } from '../utils/format'
 import { usePlayerStore } from '../stores/player'
 
@@ -205,11 +220,39 @@ const createDialogOpen = ref(false)
 const groupDrawerOpen = ref(false)
 const groupDetail = ref(null)
 
+const mergeStatus = reactive({
+  merging: false,
+  mergeId: '',
+  progress: 0,
+  stepLabel: '',
+  error: '',
+})
+let mergeEventSource = null
+
 const query = reactive({
   keyword: '',
   favoriteOnly: false,
   page: 1,
   size: 20,
+})
+
+const addingGroupId = ref(null)
+
+let keywordDebounceTimer = null
+
+watch(() => query.keyword, () => {
+  clearTimeout(keywordDebounceTimer)
+  keywordDebounceTimer = setTimeout(() => {
+    query.page = 1
+    reloadGroups()
+  }, 300)
+})
+
+watch(groupDrawerOpen, (open) => {
+  if (!open) {
+    closeMergeSse()
+    mergeStatus.merging = false
+  }
 })
 
 const newPlaylist = reactive({
@@ -252,7 +295,7 @@ async function loadPlaylists() {
       await loadPlaylistTracks(selectedPlaylistId.value)
     }
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '加载播放列表失败')
+    ElMessage.error(friendlyError(error, '加载播放列表失败'))
   }
 }
 
@@ -270,7 +313,7 @@ async function loadPlaylistTracks(playlistId) {
     const { data } = await getTracks(playlistId)
     playlistTracks.value = data
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '加载列表内容失败')
+    ElMessage.error(friendlyError(error, '加载列表内容失败'))
   }
 }
 
@@ -291,7 +334,7 @@ async function savePlaylist() {
     await selectPlaylist(data.id)
     ElMessage.success('播放列表已创建')
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '创建失败')
+    ElMessage.error(friendlyError(error, '创建失败'))
   }
 }
 
@@ -307,7 +350,7 @@ async function deletePlaylistItem(playlist) {
     ElMessage.success('播放列表已删除')
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.detail || error.message || '删除失败')
+      ElMessage.error(friendlyError(error, '删除失败'))
     }
   }
 }
@@ -317,8 +360,13 @@ async function openGroup(groupId) {
     const { data } = await getAudioGroup(groupId)
     groupDetail.value = data
     groupDrawerOpen.value = true
+    mergeStatus.merging = false
+    mergeStatus.progress = 0
+    mergeStatus.stepLabel = ''
+    mergeStatus.error = ''
+    mergeStatus.mergeId = ''
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '加载分组详情失败')
+    ElMessage.error(friendlyError(error, '加载分组详情失败'))
   }
 }
 
@@ -356,7 +404,7 @@ async function toggleRecordFavorite(record) {
     await toggleFavorite(record.id)
     await Promise.all([reloadGroups(), groupDetail.value ? openGroup(groupDetail.value.group_id) : Promise.resolve()])
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '操作失败')
+    ElMessage.error(friendlyError(error, '操作失败'))
   }
 }
 
@@ -370,7 +418,7 @@ async function addRecordToPlaylist(audioId) {
     await loadPlaylistTracks(selectedPlaylistId.value)
     ElMessage.success('已加入当前播放列表')
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '加入失败')
+    ElMessage.error(friendlyError(error, '加入失败'))
   }
 }
 
@@ -379,15 +427,24 @@ async function addGroupToPlaylist(groupId) {
     ElMessage.warning('请先在右侧选一个播放列表')
     return
   }
+  addingGroupId.value = groupId
   try {
     const detail = groupDetail.value?.group_id === groupId ? groupDetail.value : (await getAudioGroup(groupId)).data
-    for (const record of detail.records) {
-      await addTrack(selectedPlaylistId.value, record.id)
-    }
+    const results = await Promise.allSettled(
+      detail.records.map(record => addTrack(selectedPlaylistId.value, record.id))
+    )
+    const succeeded = results.filter(r => r.status === 'fulfilled').length
+    const failed = results.filter(r => r.status === 'rejected').length
     await loadPlaylistTracks(selectedPlaylistId.value)
-    ElMessage.success(`已把 ${detail.records.length} 段加入当前列表`)
+    if (failed === 0) {
+      ElMessage.success(`已把 ${succeeded} 段加入当前列表`)
+    } else {
+      ElMessage.warning(`已加入 ${succeeded} 段，${failed} 段失败`)
+    }
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '加入失败')
+    ElMessage.error(friendlyError(error, '加入失败'))
+  } finally {
+    addingGroupId.value = null
   }
 }
 
@@ -398,7 +455,7 @@ async function removePlaylistTrack(track) {
     await loadPlaylistTracks(selectedPlaylistId.value)
     ElMessage.success('已从播放列表移除')
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '移除失败')
+    ElMessage.error(friendlyError(error, '移除失败'))
   }
 }
 
@@ -414,7 +471,106 @@ async function deleteGroupItem(group) {
     ElMessage.success('音频分组已删除')
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.detail || error.message || '删除失败')
+      ElMessage.error(friendlyError(error, '删除失败'))
+    }
+  }
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return '-'
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+async function handleMerge(groupId) {
+  mergeStatus.merging = true
+  mergeStatus.progress = 0
+  mergeStatus.stepLabel = '正在启动合并...'
+  mergeStatus.error = ''
+  try {
+    const { data } = await mergeAudioGroup(groupId)
+    mergeStatus.mergeId = data.merge_id
+    connectMergeSse(groupId, data.merge_id)
+  } catch (error) {
+    mergeStatus.merging = false
+    ElMessage.error(friendlyError(error, '启动合并失败'))
+  }
+}
+
+function connectMergeSse(groupId, mergeId) {
+  closeMergeSse()
+  mergeEventSource = new EventSource(getMergeEventsUrl(groupId, mergeId))
+
+  mergeEventSource.onmessage = ({ data }) => {
+    try {
+      handleMergeEvent(JSON.parse(data))
+    } catch { /* ignore */ }
+  }
+
+  mergeEventSource.onerror = () => {
+    closeMergeSse()
+    if (mergeStatus.merging && !mergeStatus.error) {
+      mergeStatus.merging = false
+      mergeStatus.error = '连接中断'
+    }
+  }
+}
+
+function closeMergeSse() {
+  if (mergeEventSource) {
+    mergeEventSource.close()
+    mergeEventSource = null
+  }
+}
+
+function handleMergeEvent(payload) {
+  if (payload.type === 'merge_started') {
+    mergeStatus.progress = 10
+    mergeStatus.stepLabel = `准备中 (共 ${payload.total_chunks} 段)`
+  }
+  if (payload.type === 'merge_progress') {
+    if (payload.step === 'preparing') {
+      mergeStatus.progress = Math.round(10 + (payload.current / payload.total) * 40)
+      mergeStatus.stepLabel = `验证文件 ${payload.current}/${payload.total}`
+    }
+    if (payload.step === 'merging') {
+      mergeStatus.progress = 60
+      mergeStatus.stepLabel = '正在合并音频...'
+    }
+    if (payload.step === 'saving') {
+      mergeStatus.progress = 90
+      mergeStatus.stepLabel = '保存中...'
+    }
+  }
+  if (payload.type === 'merge_done') {
+    mergeStatus.progress = 100
+    mergeStatus.stepLabel = '合并完成'
+    mergeStatus.merging = false
+    closeMergeSse()
+    ElMessage.success('音频合并完成')
+    openGroup(groupDetail.value.group_id)
+    reloadGroups()
+  }
+  if (payload.type === 'merge_error') {
+    mergeStatus.merging = false
+    mergeStatus.error = payload.error
+    mergeStatus.stepLabel = '合并失败'
+    closeMergeSse()
+    ElMessage.error(payload.error || '合并失败')
+  }
+}
+
+async function deleteMerged(groupId) {
+  try {
+    await ElMessageBox.confirm('确认删除合并文件？', '删除合并文件')
+    await deleteMergedRecord(groupId)
+    ElMessage.success('合并文件已删除')
+    await openGroup(groupId)
+    await reloadGroups()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(friendlyError(error, '删除失败'))
     }
   }
 }
@@ -423,154 +579,217 @@ function handlePageChange(page) {
   query.page = page
   reloadGroups()
 }
+
+function onSearchEnter() {
+  clearTimeout(keywordDebounceTimer)
+  query.page = 1
+  reloadGroups()
+}
+
+function onFilterChange() {
+  query.page = 1
+  reloadGroups()
+}
 </script>
 
 <style scoped>
 .library-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.95fr);
-  gap: 20px;
+  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
+  gap: 24px;
   align-items: start;
 }
 
-.surface {
-  background: #fff;
-  border: 1px solid #e8edf5;
-  border-radius: 8px;
-  padding: 20px;
+.library-main {
+  padding: 24px;
 }
 
-.surface-header {
+.card-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
   gap: 16px;
-  margin-bottom: 16px;
+  align-items: flex-start;
+  margin-bottom: 24px;
 }
 
-.surface-header h2 {
+.card-header h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
 }
 
-.surface-header p {
-  margin: 6px 0 0;
-  font-size: 13px;
+.card-header p {
+  margin: 4px 0 0;
   color: #64748b;
+  font-size: 13px;
 }
 
-.surface-actions {
+.header-actions {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   align-items: center;
-  flex-wrap: wrap;
 }
 
 .search-input {
-  width: 240px;
+  width: 220px;
 }
 
 .pagination-row {
-  margin-top: 16px;
+  margin-top: 24px;
   display: flex;
   justify-content: flex-end;
 }
 
-.playlist-stack,
-.group-detail {
+.library-side {
+  display: grid;
+  gap: 24px;
+}
+
+.side-section {
+  padding: 24px;
+}
+
+.playlist-stack {
   display: grid;
   gap: 12px;
 }
 
 .playlist-button {
   background: #f8fafc;
-  border: 1px solid #e8edf5;
-  border-radius: 8px;
-  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 12px 16px;
   text-align: left;
-  display: grid;
-  gap: 6px;
   cursor: pointer;
+  transition: all 0.2s ease;
+  display: grid;
+  gap: 4px;
 }
 
-.playlist-button span:first-child {
-  font-size: 14px;
-  font-weight: 600;
-  color: #0f172a;
-}
-
-.playlist-button span:last-child {
-  font-size: 12px;
-  color: #64748b;
+.playlist-button:hover {
+  background: #ffffff;
+  border-color: var(--el-color-primary-light-7);
+  box-shadow: var(--el-box-shadow-light);
+  transform: translateX(4px);
 }
 
 .playlist-button.active {
-  border-color: #60a5fa;
-  background: #eff6ff;
+  background: var(--el-color-primary-light-9);
+  border-color: var(--el-color-primary-light-5);
 }
 
-.playlist-detail {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid #eef2f8;
-}
-
-.playlist-detail-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.detail-title {
-  font-size: 15px;
+.playlist-name {
+  font-size: 14px;
   font-weight: 600;
-  color: #0f172a;
+  color: #1e293b;
 }
 
-.detail-subtitle {
-  margin-top: 4px;
+.playlist-desc {
   font-size: 12px;
-  color: #64748b;
+  color: #94a3b8;
+}
+
+.playlist-detail-section {
+  border-top: 1px solid #f1f5f9;
 }
 
 .inline-state {
+  padding: 12px;
+  background: #fffbeb;
+  border-radius: 8px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  color: #b45309;
   font-size: 13px;
+  color: #b45309;
   margin-bottom: 16px;
+}
+
+.group-detail {
+  display: grid;
+  gap: 24px;
+  padding: 0 24px 24px;
 }
 
 .detail-header-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
 }
 
 .detail-stat {
   background: #f8fafc;
-  border: 1px solid #e8edf5;
-  border-radius: 8px;
-  padding: 12px;
+  padding: 16px;
+  border-radius: 10px;
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .detail-stat span {
   font-size: 12px;
-  color: #64748b;
+  color: #94a3b8;
 }
 
 .detail-stat strong {
-  font-size: 15px;
+  font-size: 16px;
   color: #0f172a;
 }
 
-.detail-actions {
-  margin: 16px 0;
+.merge-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 10px;
+}
+
+.merge-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.merge-step {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.merged-file-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 8px;
+}
+
+.merged-file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.merged-title {
+  font-weight: 600;
+  color: #065f46;
+}
+
+.merged-meta {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.merged-file-actions {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 1000px) {
+  .library-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

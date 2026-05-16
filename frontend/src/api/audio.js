@@ -35,3 +35,15 @@ export function deleteAudioGroup(groupId) {
 export function getAudioUrl(id) {
   return `/api/audio/file/${id}`
 }
+
+export function mergeAudioGroup(groupId) {
+  return api.post(`/audio/groups/${groupId}/merge`)
+}
+
+export function getMergeEventsUrl(groupId, mergeId) {
+  return `/api/audio/groups/${groupId}/merge-events/${mergeId}`
+}
+
+export function deleteMergedRecord(groupId) {
+  return api.delete(`/audio/groups/${groupId}/merge`)
+}

@@ -1,71 +1,91 @@
 <template>
   <div class="voice-manage">
-    <h2>音色管理</h2>
+    <section class="surface-card voice-card">
+      <div class="card-header">
+        <div>
+          <h2>音色管理</h2>
+          <p>浏览预置音色，或通过设计与克隆创建您专属的声音。</p>
+        </div>
+      </div>
 
-    <el-tabs>
-      <el-tab-pane label="预置音色">
-        <el-table :data="presets">
-          <el-table-column prop="name" label="名称" />
-          <el-table-column prop="language" label="语言" />
-          <el-table-column prop="gender" label="性别" />
-        </el-table>
-      </el-tab-pane>
-
-      <el-tab-pane label="音色设计">
-        <el-form label-width="100px" style="max-width: 600px">
-          <el-form-item label="音色名称">
-            <el-input v-model="designForm.name" />
-          </el-form-item>
-          <el-form-item label="音色描述">
-            <el-input v-model="designForm.description" type="textarea" :rows="3" placeholder="例如：年轻女性，温柔甜美，语速适中" />
-          </el-form-item>
-          <el-form-item label="试听文本">
-            <el-input v-model="designForm.sample_text" />
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="handleDesign" :loading="designing">创建音色</el-button>
-          </el-form-item>
-        </el-form>
-      </el-tab-pane>
-
-      <el-tab-pane label="音色克隆">
-        <el-form label-width="100px" style="max-width: 600px">
-          <el-form-item label="音色名称">
-            <el-input v-model="cloneForm.name" />
-          </el-form-item>
-          <el-form-item label="音频样本">
-            <el-upload :auto-upload="false" :limit="1" accept=".mp3,.wav" @change="handleFileChange">
-              <el-button>选择文件</el-button>
-              <template #tip>
-                <div class="el-upload__tip">支持 mp3/wav 格式，最大 10MB</div>
+      <el-tabs class="voice-tabs">
+        <el-tab-pane label="预置音色">
+          <el-table :data="presets" style="width: 100%">
+            <el-table-column prop="name" label="名称" width="150" />
+            <el-table-column prop="language" label="语言" width="120" />
+            <el-table-column prop="gender" label="性别" width="100" />
+            <el-table-column label="操作" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" link @click="playPresetPreview(row)">试听</el-button>
               </template>
-            </el-upload>
-          </el-form-item>
-          <el-form-item label="试听文本">
-            <el-input v-model="cloneForm.sample_text" />
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="handleClone" :loading="cloning">创建音色</el-button>
-          </el-form-item>
-        </el-form>
-      </el-tab-pane>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
 
-      <el-tab-pane label="我的音色">
-        <el-table :data="customVoices">
-          <el-table-column prop="name" label="名称" />
-          <el-table-column prop="type" label="类型">
-            <template #default="{ row }">{{ row.type === 'design' ? '设计' : '克隆' }}</template>
-          </el-table-column>
-          <el-table-column prop="description" label="描述" />
-          <el-table-column label="操作" width="150">
-            <template #default="{ row }">
-              <el-button size="small" @click="playPreview(row)">试听</el-button>
-              <el-button size="small" type="danger" @click="handleDeleteVoice(row)">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-tab-pane>
-    </el-tabs>
+        <el-tab-pane label="音色设计">
+          <div class="form-container">
+            <el-form label-position="top" style="max-width: 500px">
+              <el-form-item label="音色名称">
+                <el-input v-model="designForm.name" placeholder="起个好听的名字" />
+              </el-form-item>
+              <el-form-item label="音色描述">
+                <el-input v-model="designForm.description" type="textarea" :rows="3" placeholder="例如：年轻女性，温柔甜美，语速适中" />
+              </el-form-item>
+              <el-form-item label="试听文本">
+                <el-input v-model="designForm.sample_text" />
+              </el-form-item>
+              <div class="form-actions">
+                <el-button type="primary" @click="handleDesign" :loading="designing">创建并试听</el-button>
+              </div>
+            </el-form>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="音色克隆">
+          <div class="form-container">
+            <el-form label-position="top" style="max-width: 500px">
+              <el-form-item label="音色名称">
+                <el-input v-model="cloneForm.name" placeholder="起个好听的名字" />
+              </el-form-item>
+              <el-form-item label="音频样本">
+                <el-upload :auto-upload="false" :limit="1" accept=".mp3,.wav" @change="handleFileChange" class="voice-upload">
+                  <el-button plain>选择文件</el-button>
+                  <template #tip>
+                    <div class="el-upload__tip">支持 mp3/wav 格式，最大 10MB</div>
+                  </template>
+                </el-upload>
+              </el-form-item>
+              <el-form-item label="试听文本">
+                <el-input v-model="cloneForm.sample_text" />
+              </el-form-item>
+              <div class="form-actions">
+                <el-button type="primary" @click="handleClone" :loading="cloning">上传并克隆</el-button>
+              </div>
+            </el-form>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="我的音色">
+          <el-table :data="customVoices" empty-text="您还没有创建过音色" style="width: 100%">
+            <el-table-column prop="name" label="名称" width="150" />
+            <el-table-column prop="type" label="类型" width="100">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.type === 'design' ? 'success' : 'warning'">
+                  {{ row.type === 'design' ? '设计' : '克隆' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
+            <el-table-column label="操作" width="180" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" link @click="playPreview(row)">试听</el-button>
+                <el-button size="small" link type="danger" @click="handleDeleteVoice(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
+    </section>
   </div>
 </template>
 
@@ -148,6 +168,13 @@ function playPreview(row) {
   })
 }
 
+function playPresetPreview(row) {
+  player.playUrl(getVoicePreviewUrl(row.name), {
+    title: `${row.name} 试听`,
+    sourceType: 'preview',
+  })
+}
+
 async function handleDeleteVoice(row) {
   try {
     await deleteVoice(row.id)
@@ -158,3 +185,42 @@ async function handleDeleteVoice(row) {
   }
 }
 </script>
+
+<style scoped>
+.voice-card {
+  padding: 24px;
+}
+
+.card-header {
+  margin-bottom: 24px;
+}
+
+.card-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.card-header p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.voice-tabs :deep(.el-tabs__header) {
+  margin-bottom: 24px;
+}
+
+.form-container {
+  padding: 8px 0;
+}
+
+.form-actions {
+  margin-top: 24px;
+}
+
+.voice-upload {
+  width: 100%;
+}
+</style>

@@ -1,15 +1,17 @@
+import asyncio
+import json
 import logging
 import os
 
 from fastapi import APIRouter, Depends, Query, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.db_models import AudioRecord, PlaylistTrack, SynthesisChunk, SynthesisTask
 from app.models import AudioGroupDetailOut, AudioGroupSummaryOut, AudioRecordOut
-from app.services import synthesis_service
+from app.services import merge_service, synthesis_service
 from app.services.audio_storage import delete_audio_file, get_audio_full_path
 
 logger = logging.getLogger("tingshu.audio")
@@ -215,9 +217,22 @@ async def get_audio_group_detail(group_id: str, db: AsyncSession = Depends(get_d
         raise HTTPException(status_code=404, detail="音频分组不存在")
 
     summary = _build_group_summary(group_id, records)
+
+    # 查询该分组的合并文件
+    merged_result = await db.execute(
+        select(AudioRecord)
+        .where(AudioRecord.source_group_id == group_id)
+        .where(AudioRecord.is_merged == True)
+        .order_by(AudioRecord.created_at.desc())
+        .limit(1)
+    )
+    merged_record = merged_result.scalar_one_or_none()
+
     return AudioGroupDetailOut.model_validate({
         **summary,
+        "has_merged": merged_record is not None,
         "records": _sort_group_records(records),
+        "merged_record": merged_record,
     })
 
 
@@ -258,3 +273,65 @@ async def delete_audio_group(group_id: str, db: AsyncSession = Depends(get_db)):
 
     await db.commit()
     return {"message": "音频分组已删除", "deleted_records": len(records)}
+
+
+@router.post("/groups/{group_id}/merge")
+async def merge_audio_group(group_id: str, db: AsyncSession = Depends(get_db)):
+    records = await _load_group_records(group_id, db)
+    if not records:
+        raise HTTPException(status_code=404, detail="音频分组不存在")
+    if len(records) < 2:
+        raise HTTPException(status_code=400, detail="单条音频无需合并")
+    if merge_service.is_merging(group_id):
+        raise HTTPException(status_code=409, detail="该分组正在合并中")
+
+    merge_id = await merge_service.start_merge(group_id, records)
+    return {"merge_id": merge_id, "group_id": group_id, "total_chunks": len(records)}
+
+
+@router.get("/groups/{group_id}/merge-events/{merge_id}")
+async def merge_events(group_id: str, merge_id: str):
+    async def event_generator():
+        queue = merge_service.subscribe(merge_id)
+        try:
+            while True:
+                event = await queue.get()
+                yield f"data: {json.dumps(event, default=str)}\n\n"
+                if event.get("type") in ("merge_done", "merge_error"):
+                    break
+        except asyncio.CancelledError:
+            pass
+        finally:
+            merge_service.unsubscribe(merge_id, queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.delete("/groups/{group_id}/merge")
+async def delete_merged_audio(group_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(AudioRecord)
+        .where(AudioRecord.source_group_id == group_id)
+        .where(AudioRecord.is_merged == True)
+    )
+    merged_records = result.scalars().all()
+    if not merged_records:
+        raise HTTPException(status_code=404, detail="没有找到合并文件")
+
+    deleted = 0
+    for record in merged_records:
+        full_path = get_audio_full_path(record.file_path)
+        if os.path.exists(full_path):
+            try:
+                delete_audio_file(record.file_path)
+            except OSError as e:
+                logger.warning(f"删除合并文件失败 {record.file_path}: {e}")
+        await db.delete(record)
+        deleted += 1
+
+    await db.commit()
+    return {"message": "合并文件已删除", "deleted": deleted}

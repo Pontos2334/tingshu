@@ -1,5 +1,4 @@
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
 
 const api = axios.create({
   baseURL: '/api',
@@ -19,19 +18,19 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    const status = error.response?.status
-    const detail = error.response?.data?.detail
-
-    if (status === 401) {
-      ElMessage.error('认证失败，请检查设置')
-    } else if (!status) {
-      ElMessage.error('无法连接服务器，请确认后端服务正在运行')
-    } else if (status >= 500) {
-      ElMessage.error(detail || '服务暂时不可用，请稍后重试')
+    if (!error.response) {
+      error._friendlyMessage = '无法连接服务器，请确认后端服务正在运行'
+    } else if (error.response.status === 401) {
+      error._friendlyMessage = '认证失败，请检查设置'
+    } else if (error.response.status >= 500) {
+      error._friendlyMessage = error.response.data?.detail || '服务暂时不可用，请稍后重试'
     }
-
     return Promise.reject(error)
   }
 )
+
+export function friendlyError(error, fallback = '操作失败') {
+  return error._friendlyMessage || error.response?.data?.detail || fallback
+}
 
 export default api

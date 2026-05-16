@@ -1,13 +1,13 @@
 <template>
   <div class="workbench">
     <div class="workbench-grid">
-      <section class="surface surface-large">
-        <div class="surface-header">
+      <section class="surface-card workbench-main">
+        <div class="card-header">
           <div>
             <h2>创作与文本</h2>
             <p>同一页里完成取材、改稿、合成，不再来回跳。</p>
           </div>
-          <div class="surface-actions">
+          <div class="header-actions">
             <el-button @click="loadGenerationHistory" :loading="historyLoading">刷新历史</el-button>
             <el-button @click="openTemplateDrawer()">模板管理</el-button>
           </div>
@@ -22,12 +22,12 @@
             <el-form label-position="top" class="ai-panel">
               <div class="compact-grid">
                 <el-form-item label="模板" class="compact-item">
-                  <el-select v-model="aiForm.templateId" placeholder="选择模板" clearable>
+                  <el-select v-model="aiForm.templateId" placeholder="选择模板" clearable style="width: 100%">
                     <el-option v-for="item in templates" :key="item.id" :label="item.name" :value="item.id" />
                   </el-select>
                 </el-form-item>
                 <el-form-item label="模型" class="compact-item">
-                  <el-select v-model="aiForm.model">
+                  <el-select v-model="aiForm.model" style="width: 100%">
                     <el-option label="DeepSeek Chat" value="deepseek-chat" />
                     <el-option label="DeepSeek Reasoner" value="deepseek-reasoner" />
                     <el-option label="DeepSeek V4 Pro" value="deepseek-v4-pro" />
@@ -65,7 +65,7 @@
 
               <div class="compact-grid">
                 <el-form-item label="最大字数" class="compact-item">
-                  <el-input-number v-model="aiForm.maxTokens" :min="500" :max="8000" :step="500" />
+                  <el-input-number v-model="aiForm.maxTokens" :min="500" :max="8000" :step="500" style="width: 100%" />
                 </el-form-item>
                 <el-form-item label="思考模式" class="compact-item">
                   <div class="switch-field">
@@ -80,8 +80,8 @@
 
               <div class="panel-actions">
                 <el-button type="primary" :loading="generating" @click="handleGenerate">生成并写入编辑区</el-button>
-                <el-button type="success" :loading="generating || synthLoading" @click="handleGenerateAndSynthesize">生成后直接合成</el-button>
-                <el-button @click="saveCurrentPromptAsTemplate">把当前提示词存成模板</el-button>
+                <el-button type="success" :loading="generating || synthLoading" @click="handleGenerateAndSynthesize">直接合成</el-button>
+                <el-button @click="saveCurrentPromptAsTemplate">存为模板</el-button>
               </div>
             </el-form>
           </el-tab-pane>
@@ -91,16 +91,15 @@
               <span>{{ historyError }}</span>
               <el-button link type="primary" @click="loadGenerationHistory">重试</el-button>
             </div>
-            <el-table v-else :data="generationHistory" size="small" empty-text="还没有生成历史">
+            <el-table v-else :data="generationHistory" size="small" empty-text="还没有生成历史" style="width: 100%">
               <el-table-column prop="topic" label="主题" min-width="260" show-overflow-tooltip />
               <el-table-column prop="model" label="模型" width="150" />
               <el-table-column label="时间" width="160">
                 <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
               </el-table-column>
-              <el-table-column label="操作" width="190">
+              <el-table-column label="操作" width="190" fixed="right">
                 <template #default="{ row }">
                   <el-button size="small" @click="useHistoryDraft(row)">使用</el-button>
-                  <el-button size="small" @click="copyHistoryDraft(row)">复制到编辑区</el-button>
                   <el-button size="small" type="danger" @click="handleDeleteHistory(row)">删除</el-button>
                 </template>
               </el-table-column>
@@ -109,16 +108,14 @@
         </el-tabs>
 
         <div class="editor-toolbar">
-          <div class="editor-meta">{{ workflow.draftText.length }} 字</div>
-          <div class="surface-actions">
-            <el-button @click="workflow.setDraftText('')">清空文本</el-button>
-          </div>
+          <div class="editor-meta">当前正文：<strong>{{ workflow.draftText.length }}</strong> 字</div>
+          <el-button link type="danger" @click="workflow.setDraftText('')">清空文本</el-button>
         </div>
 
         <el-input
           :model-value="workflow.draftText"
           type="textarea"
-          :rows="22"
+          :rows="18"
           resize="none"
           class="editor-input"
           placeholder="这里是当前准备合成的正文。AI 生成、历史稿件、直接输入都会汇到这一份草稿里。"
@@ -126,109 +123,119 @@
         />
       </section>
 
-      <aside class="surface surface-side">
-        <div class="surface-header">
-          <div>
-            <h2>合成配置</h2>
-            <p>音色、试听、任务和最近结果都集中在这里。</p>
-          </div>
-        </div>
-
-        <el-form label-position="top" class="config-form">
-          <el-form-item label="音色">
-            <el-select v-model="voiceSelection" placeholder="选择音色">
-              <el-option-group label="预置音色">
-                <el-option v-for="voice in presets" :key="voice.name" :label="voice.name" :value="voice.name">
-                  {{ voice.name }} ({{ voice.language }} {{ voice.gender }})
-                </el-option>
-              </el-option-group>
-              <el-option-group v-if="customVoices.length" label="我的音色">
-                <el-option
-                  v-for="voice in customVoices"
-                  :key="voice.id"
-                  :label="voice.name"
-                  :value="`custom-${voice.id}`"
-                >
-                  {{ voice.name }} ({{ voice.type === 'design' ? '设计' : '克隆' }})
-                </el-option>
-              </el-option-group>
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="风格">
-            <el-select :model-value="workflow.styles" multiple collapse-tags collapse-tags-tooltip @update:model-value="workflow.setStyles($event)">
-              <el-option v-for="style in styleOptions" :key="style" :label="style" :value="style" />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="长文本分段长度">
-            <el-slider :model-value="workflow.chunkSize" :min="200" :max="1200" :step="100" @update:model-value="workflow.setChunkSize($event)" />
-          </el-form-item>
-
-          <div class="panel-actions stack">
-            <el-button type="primary" :loading="synthLoading" @click="handleSynthesize">开始合成</el-button>
-            <el-button :loading="previewing" @click="handlePreview">试听前 100 字</el-button>
-          </div>
-        </el-form>
-
-        <div class="task-card">
-          <div class="task-header">
+      <aside class="workbench-side">
+        <section class="surface-card config-section">
+          <div class="card-header">
             <div>
-              <div class="task-title">当前任务</div>
-              <div class="task-subtitle">{{ taskStatusLabel }}</div>
+              <h2>合成配置</h2>
+              <p>设置音色与分段策略。</p>
             </div>
-            <el-button v-if="workflow.currentTaskId" link type="primary" @click="restoreTask">刷新状态</el-button>
           </div>
 
-          <el-empty v-if="!workflow.taskSnapshot" description="还没有进行中的长文本任务" :image-size="90" />
+          <el-form label-position="top" class="config-form">
+            <el-form-item label="音色">
+              <el-select v-model="voiceSelection" placeholder="选择音色" style="width: 100%">
+                <el-option-group label="预置音色">
+                  <el-option v-for="voice in presets" :key="voice.name" :label="voice.name" :value="voice.name">
+                    {{ voice.name }} ({{ voice.language }} {{ voice.gender }})
+                  </el-option>
+                </el-option-group>
+                <el-option-group v-if="customVoices.length" label="我的音色">
+                  <el-option
+                    v-for="voice in customVoices"
+                    :key="voice.id"
+                    :label="voice.name"
+                    :value="`custom-${voice.id}`"
+                  >
+                    {{ voice.name }} ({{ voice.type === 'design' ? '设计' : '克隆' }})
+                  </el-option>
+                </el-option-group>
+              </el-select>
+            </el-form-item>
+
+            <el-form-item label="风格">
+              <el-select :model-value="workflow.styles" multiple collapse-tags collapse-tags-tooltip style="width: 100%" @update:model-value="workflow.setStyles($event)">
+                <el-option v-for="style in styleOptions" :key="style" :label="style" :value="style" />
+              </el-select>
+            </el-form-item>
+
+            <el-form-item label="分段长度">
+              <el-slider :model-value="workflow.chunkSize" :min="200" :max="1200" :step="100" @update:model-value="workflow.setChunkSize($event)" />
+            </el-form-item>
+
+            <div class="panel-actions stack">
+              <el-button type="primary" size="large" :loading="synthLoading" @click="handleSynthesize">开始合成任务</el-button>
+              <el-button size="large" plain :loading="previewing" @click="handlePreview">试听前 100 字</el-button>
+            </div>
+          </el-form>
+        </section>
+
+        <section class="surface-card task-section">
+          <div class="card-header">
+            <div>
+              <h2 class="section-title">合成任务</h2>
+              <p class="section-subtitle">{{ taskStatusLabel }}</p>
+            </div>
+            <el-button v-if="workflow.currentTaskId" link type="primary" @click="restoreTask">刷新</el-button>
+          </div>
+
+          <el-alert
+            v-if="workflow.sseReconnecting"
+            title="正在重连..."
+            type="warning"
+            :closable="false"
+            show-icon
+            class="sse-banner"
+          />
+
+          <el-empty v-if="!workflow.taskSnapshot" description="没有正在进行的任务" :image-size="60" />
 
           <template v-else>
-            <div class="task-summary">
-              <div class="summary-row">
-                <span>标题</span>
-                <strong>{{ workflow.taskSnapshot.title }}</strong>
-              </div>
-              <div class="summary-row">
+            <div class="task-info">
+              <div class="info-row">
                 <span>进度</span>
                 <strong>{{ workflow.taskSnapshot.completed_chunks || 0 }} / {{ workflow.taskSnapshot.total_chunks || 0 }}</strong>
               </div>
             </div>
 
-            <div class="chunk-list">
+            <div class="chunk-scroll">
               <div v-for="chunk in taskChunks" :key="chunk.chunk_index" class="chunk-row">
                 <div class="chunk-meta">
-                  <span>第 {{ chunk.chunk_index + 1 }} 段</span>
-                  <span class="chunk-status">{{ chunkLabel(chunk) }}</span>
+                  <span class="chunk-idx">#{{ chunk.chunk_index + 1 }}</span>
+                  <span class="chunk-status-tag" :class="chunk.status">{{ chunkLabel(chunk) }}</span>
                 </div>
-                <el-progress :percentage="chunk.status === 'completed' ? 100 : 0" :status="chunk.status === 'failed' ? 'exception' : (chunk.status === 'completed' ? 'success' : '')" :stroke-width="6" />
+                <el-progress 
+                  :percentage="chunk.status === 'completed' ? 100 : 0" 
+                  :status="chunk.status === 'failed' ? 'exception' : (chunk.status === 'completed' ? 'success' : '')" 
+                  :stroke-width="4" 
+                  :show-text="false"
+                />
               </div>
             </div>
 
-            <div class="panel-actions wrap">
-              <el-button v-if="workflow.taskSnapshot.status === 'running'" type="warning" @click="handleCancelTask">取消</el-button>
-              <el-button v-if="['failed', 'partial'].includes(workflow.taskSnapshot.status)" type="primary" @click="handleResumeTask">恢复任务</el-button>
-              <el-button v-if="['failed', 'partial'].includes(workflow.taskSnapshot.status)" @click="handleRetryFailed">重试失败段</el-button>
-              <el-button v-if="playableTaskRecordIds.length" type="success" @click="playTaskQueue">播放结果</el-button>
-              <el-button v-if="playableTaskRecordIds.length" @click="goLibrary">打开音频库</el-button>
+            <div class="task-actions">
+              <el-button v-if="workflow.taskSnapshot.status === 'running'" type="warning" size="small" plain @click="handleCancelTask">取消</el-button>
+              <el-button v-if="['failed', 'partial'].includes(workflow.taskSnapshot.status)" type="primary" size="small" @click="handleResumeTask">继续</el-button>
+              <el-button v-if="playableTaskRecordIds.length" type="success" size="small" @click="playTaskQueue">播放</el-button>
             </div>
           </template>
-        </div>
+        </section>
 
-        <div class="recent-card">
-          <div class="task-header">
+        <section class="surface-card recent-section">
+          <div class="card-header">
             <div>
-              <div class="task-title">最近生成</div>
-              <div class="task-subtitle">本地保留最近 8 份草稿入口</div>
+              <h2 class="section-title">最近草稿</h2>
+              <p class="section-subtitle">本地保留 8 份历史记录</p>
             </div>
           </div>
-          <el-empty v-if="!workflow.recentOutputs.length" description="最近没有新的 AI 草稿" :image-size="90" />
+          <el-empty v-if="!workflow.recentOutputs.length" description="空空如也" :image-size="60" />
           <div v-else class="recent-list">
             <button v-for="item in workflow.recentOutputs" :key="item.id || item.createdAt" class="recent-item" @click="useRecentOutput(item)">
               <span class="recent-title">{{ item.topic || '未命名草稿' }}</span>
               <span class="recent-meta">{{ item.model }} · {{ formatDate(item.createdAt) }}</span>
             </button>
           </div>
-        </div>
+        </section>
       </aside>
     </div>
 
@@ -298,6 +305,7 @@ import {
 } from '../api/ai'
 import { preview, synthesize, createSynthesisTask, getSynthesisTask, resumeSynthesisTask, retryFailedChunks, cancelSynthesisTask } from '../api/tts'
 import { getCustomVoices, getPresets } from '../api/voices'
+import { friendlyError } from '../api/index'
 import { formatDate } from '../utils/format'
 import { usePlayerStore } from '../stores/player'
 import { useSettingsStore } from '../stores/settings'
@@ -384,6 +392,9 @@ const voiceSelection = computed({
 })
 
 let eventSource = null
+let reconnectAttempts = 0
+let reconnectTimer = null
+const MAX_RECONNECTS = 5
 
 onMounted(async () => {
   await Promise.all([
@@ -401,6 +412,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  clearTimeout(reconnectTimer)
   closeSse()
 })
 
@@ -410,7 +422,7 @@ async function loadVoices() {
     presets.value = presetRes.data
     customVoices.value = customRes.data
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '加载音色失败')
+    ElMessage.error(friendlyError(error, '加载音色失败'))
   }
 }
 
@@ -419,7 +431,7 @@ async function loadTemplates() {
     const { data } = await getTemplates()
     templates.value = data
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '加载模板失败')
+    ElMessage.error(friendlyError(error, '加载模板失败'))
   }
 }
 
@@ -483,7 +495,7 @@ async function handleGenerate() {
       ElMessage.success('草稿已经写入编辑区')
     }
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || error.message || '生成失败')
+    ElMessage.error(friendlyError(error, '生成失败'))
   } finally {
     generating.value = false
   }
@@ -498,7 +510,7 @@ async function handleGenerateAndSynthesize() {
       await startSynthesis(result.generated_text)
     }
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || error.message || '操作失败')
+    ElMessage.error(friendlyError(error, '操作失败'))
   } finally {
     generating.value = false
   }
@@ -533,7 +545,7 @@ async function handlePreview() {
       ElMessage.success('试听已准备好，回到页面后可直接点底部播放器播放')
     }
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '试听失败')
+    ElMessage.error(friendlyError(error, '试听失败'))
   } finally {
     previewing.value = false
   }
@@ -578,7 +590,7 @@ async function startSynthesis(text) {
     connectSse(data.task_id)
     ElMessage.success(`长文本任务已创建，共 ${data.total_chunks} 段`)
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || error.message || '合成失败')
+    ElMessage.error(friendlyError(error, '合成失败'))
   } finally {
     synthLoading.value = false
   }
@@ -593,7 +605,19 @@ function closeSse() {
 
 function connectSse(taskId) {
   closeSse()
+  reconnectAttempts = 0
+  openSseConnection(taskId)
+}
+
+function openSseConnection(taskId) {
   eventSource = new EventSource(`/api/tts/tasks/${taskId}/events`)
+  workflow.setSseState(false, reconnectAttempts > 0)
+
+  eventSource.onopen = () => {
+    reconnectAttempts = 0
+    workflow.setSseState(true, false)
+  }
+
   eventSource.onmessage = ({ data }) => {
     try {
       const payload = JSON.parse(data)
@@ -602,8 +626,20 @@ function connectSse(taskId) {
       // ignore malformed payload
     }
   }
+
   eventSource.onerror = () => {
+    if (eventSource.readyState === EventSource.CONNECTING) {
+      workflow.setSseState(false, true)
+      reconnectAttempts++
+      if (reconnectAttempts > MAX_RECONNECTS) {
+        closeSse()
+        workflow.setSseState(false, false)
+        ElMessage.warning('连接中断已达上限，请点击"刷新状态"重试')
+      }
+      return
+    }
     closeSse()
+    workflow.setSseState(false, false)
   }
 }
 
@@ -705,8 +741,13 @@ async function restoreTask() {
     if (data.is_running || data.status === 'pending' || data.status === 'running') {
       connectSse(workflow.currentTaskId)
     }
-  } catch {
-    workflow.clearTaskState()
+  } catch (error) {
+    if (error.response?.status === 404) {
+      workflow.clearTaskState()
+      ElMessage.info('任务已不存在，已清除本地状态')
+    } else {
+      ElMessage.warning('刷新任务状态失败，请稍后重试')
+    }
   }
 }
 
@@ -718,7 +759,7 @@ async function handleCancelTask() {
     await restoreTask()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.detail || error.message || '取消失败')
+      ElMessage.error(friendlyError(error, '取消失败'))
     }
   }
 }
@@ -731,7 +772,7 @@ async function handleResumeTask() {
     await restoreTask()
     connectSse(workflow.currentTaskId)
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || error.message || '恢复失败')
+    ElMessage.error(friendlyError(error, '恢复失败'))
   }
 }
 
@@ -743,7 +784,7 @@ async function handleRetryFailed() {
     await restoreTask()
     connectSse(workflow.currentTaskId)
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || error.message || '重试失败')
+    ElMessage.error(friendlyError(error, '重试失败'))
   }
 }
 
@@ -793,7 +834,7 @@ async function handleDeleteHistory(row) {
     await loadGenerationHistory()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.detail || error.message || '删除失败')
+      ElMessage.error(friendlyError(error, '删除失败'))
     }
   }
 }
@@ -869,7 +910,7 @@ async function saveTemplateDraft() {
     await loadTemplates()
     createNewTemplate()
   } catch (error) {
-    ElMessage.error(error.response?.data?.detail || error.message || '模板保存失败')
+    ElMessage.error(friendlyError(error, '模板保存失败'))
   }
 }
 
@@ -884,7 +925,7 @@ async function deleteTemplateItem(row) {
     }
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.detail || error.message || '删除失败')
+      ElMessage.error(friendlyError(error, '删除失败'))
     }
   }
 }
@@ -893,66 +934,66 @@ async function deleteTemplateItem(row) {
 <style scoped>
 .workbench-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(340px, 0.95fr);
-  gap: 20px;
+  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
+  gap: 24px;
   align-items: start;
 }
 
-.surface {
-  background: #fff;
-  border: 1px solid #e8edf5;
-  border-radius: 8px;
-  padding: 20px;
+.workbench-main {
+  padding: 24px;
 }
 
-.surface-large,
-.surface-side {
-  min-height: 100%;
-}
-
-.surface-header {
+.card-header {
   display: flex;
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
+  margin-bottom: 20px;
+}
+
+.card-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.card-header p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.source-tabs {
+  margin-bottom: 20px;
+}
+
+.source-tabs :deep(.el-tabs__header) {
   margin-bottom: 16px;
 }
 
-.surface-header h2 {
-  margin: 0;
-  font-size: 20px;
-}
-
-.surface-header p {
-  margin: 6px 0 0;
-  color: #64748b;
-  font-size: 13px;
-}
-
-.surface-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
 .source-hint {
-  color: #64748b;
+  color: #94a3b8;
   font-size: 13px;
+  background: #f8fafc;
+  padding: 12px 16px;
+  border-radius: 8px;
 }
 
-.ai-panel,
-.template-drawer,
-.template-editor,
-.template-list {
+.ai-panel {
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
 .compact-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
 }
 
 .compact-item {
@@ -963,31 +1004,23 @@ async function deleteTemplateItem(row) {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
 }
 
 .panel-actions {
   display: flex;
   gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
+  margin-top: 8px;
 }
 
 .panel-actions.stack {
   flex-direction: column;
-  align-items: stretch;
-}
-
-.panel-actions.wrap {
-  margin-top: 14px;
 }
 
 .editor-toolbar {
-  margin: 12px 0;
+  margin: 20px 0 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
 }
 
 .editor-meta {
@@ -995,97 +1028,138 @@ async function deleteTemplateItem(row) {
   color: #64748b;
 }
 
-.editor-input :deep(textarea) {
-  font-size: 14px;
-  line-height: 1.7;
+.editor-input :deep(.el-textarea__inner) {
+  padding: 16px;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.6;
 }
 
-.config-form {
-  margin-bottom: 18px;
+.workbench-side {
+  display: grid;
+  gap: 24px;
 }
 
-.task-card,
-.recent-card {
-  border-top: 1px solid #eef2f8;
-  padding-top: 18px;
-  margin-top: 18px;
+.config-section,
+.task-section,
+.recent-section {
+  padding: 24px;
 }
 
-.task-header {
+.task-info {
+  margin-bottom: 16px;
+}
+
+.info-row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-  margin-bottom: 12px;
-}
-
-.task-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: #0f172a;
-}
-
-.task-subtitle {
-  margin-top: 4px;
-  font-size: 12px;
+  font-size: 13px;
   color: #64748b;
 }
 
-.task-summary,
-.chunk-list,
-.recent-list {
+.chunk-scroll {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 16px;
   display: grid;
-  gap: 10px;
+  gap: 12px;
+  padding-right: 4px;
 }
 
-.summary-row,
+.chunk-row {
+  display: grid;
+  gap: 6px;
+}
+
 .chunk-meta {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
+  align-items: center;
 }
 
-.summary-row span,
-.chunk-status {
-  color: #64748b;
+.chunk-idx {
+  font-size: 12px;
+  color: #94a3b8;
+  font-family: monospace;
+}
+
+.chunk-status-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.chunk-status-tag.completed { color: #10b981; background: #ecfdf5; }
+.chunk-status-tag.running { color: #3b82f6; background: #eff6ff; }
+.chunk-status-tag.failed { color: #ef4444; background: #fef2f2; }
+.chunk-status-tag.pending { color: #94a3b8; background: #f8fafc; }
+
+.task-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.recent-list {
+  display: grid;
+  gap: 12px;
 }
 
 .recent-item {
   background: #f8fafc;
-  border: 1px solid #e8edf5;
-  border-radius: 8px;
-  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 10px;
   padding: 12px;
+  text-align: left;
   cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.recent-item:hover {
+  background: #ffffff;
+  border-color: var(--el-color-primary-light-7);
+  box-shadow: var(--el-box-shadow-light);
+  transform: translateX(4px);
 }
 
 .recent-title {
   display: block;
   font-size: 14px;
   font-weight: 600;
-  color: #0f172a;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .recent-meta {
   display: block;
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 12px;
-  color: #64748b;
+  color: #94a3b8;
 }
 
 .template-drawer {
-  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
-  gap: 16px;
-  height: 100%;
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 24px;
+  padding: 0 24px 24px;
 }
 
 .inline-state {
+  padding: 12px;
+  background: #fffbeb;
+  border-radius: 8px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
   font-size: 13px;
   color: #b45309;
+}
+
+@media (max-width: 1000px) {
+  .workbench-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
