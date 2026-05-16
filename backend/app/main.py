@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.database import init_db, async_session
-from app.routers import tts, voices, audio, playlists, settings, tts_tasks, ai_generate
+from app.routers import tts, voices, audio, playlists, settings, tts_tasks, ai_generate, subtitle
 from app.config import settings as app_settings
 
 logging.basicConfig(
@@ -24,6 +24,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("数据库初始化完成")
     await _reset_running_tasks()
+    await _reset_running_subtitle_projects()
     await _init_default_templates()
     yield
     logger.info("听书 TTS 工具关闭")
@@ -42,6 +43,21 @@ async def _reset_running_tasks():
         if result.rowcount > 0:
             await db.commit()
             logger.info(f"已重置 {result.rowcount} 个运行中任务为 pending")
+
+
+async def _reset_running_subtitle_projects():
+    """启动时将 running 状态的字幕项目重置为 failed"""
+    from sqlalchemy import update
+    from app.db_models import SubtitleProject
+    async with async_session() as db:
+        result = await db.execute(
+            update(SubtitleProject)
+            .where(SubtitleProject.current_step.isnot(None))
+            .values(status="failed", current_step=None, error_message="服务重启中断")
+        )
+        if result.rowcount > 0:
+            await db.commit()
+            logger.info(f"已重置 {result.rowcount} 个运行中字幕项目为 failed")
 
 
 async def _init_default_templates():
@@ -121,7 +137,7 @@ async def log_requests(request: Request, call_next):
 
 
 WRITE_METHODS = {"POST", "PUT", "DELETE"}
-PROTECTED_PREFIXES = ["/api/settings", "/api/playlists", "/api/voices", "/api/audio", "/api/tts", "/api/ai"]
+PROTECTED_PREFIXES = ["/api/settings", "/api/playlists", "/api/voices", "/api/audio", "/api/tts", "/api/ai", "/api/subtitle"]
 
 
 @app.middleware("http")
@@ -145,6 +161,7 @@ app.include_router(audio.router, prefix="/api/audio", tags=["音频"])
 app.include_router(playlists.router, prefix="/api/playlists", tags=["播放列表"])
 app.include_router(settings.router, prefix="/api/settings", tags=["设置"])
 app.include_router(ai_generate.router, prefix="/api/ai", tags=["AI 生成"])
+app.include_router(subtitle.router, prefix="/api/subtitle", tags=["字幕"])
 
 
 @app.get("/")

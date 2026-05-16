@@ -24,6 +24,18 @@ class SettingsUpdate(BaseModel):
     deepseek_api_key: str | None = None
     deepseek_base_url: str | None = None
     deepseek_model: str | None = None
+    whisper_api_key: str | None = None
+    whisper_api_base_url: str | None = None
+    xunfei_appid: str | None = None
+    xunfei_api_key: str | None = None
+    xunfei_api_secret: str | None = None
+    subtitle_asr_engine: str | None = None
+    subtitle_faster_whisper_model: str | None = None
+    subtitle_whisper_api_model: str | None = None
+    subtitle_target_language: str | None = None
+
+
+_SECRET_FIELDS = {"mimo_api_key", "deepseek_api_key", "whisper_api_key", "xunfei_api_key", "xunfei_api_secret"}
 
 
 @router.get("")
@@ -31,13 +43,27 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Setting))
     rows = result.scalars().all()
     config = {row.key: row.value for row in rows}
-    api_key = config.get("mimo_api_key", settings.mimo_api_key)
-    config["mimo_api_key"] = mask_key(api_key)
-    config["mimo_api_key_set"] = bool(api_key)
-    deepseek_key = config.get("deepseek_api_key", settings.deepseek_api_key)
-    config["deepseek_api_key"] = mask_key(deepseek_key)
-    config["deepseek_api_key_set"] = bool(deepseek_key)
+
+    # Mask secret fields and add *_set flags
+    defaults = {
+        "mimo_api_key": settings.mimo_api_key,
+        "deepseek_api_key": settings.deepseek_api_key,
+        "whisper_api_key": settings.whisper_api_key,
+        "xunfei_api_key": settings.xunfei_api_key,
+        "xunfei_api_secret": settings.xunfei_api_secret,
+    }
+    for key, default_val in defaults.items():
+        actual = config.get(key, default_val)
+        config[key] = mask_key(actual)
+        config[f"{key}_set"] = bool(actual)
+
     config.setdefault("default_voice", "冰糖")
+    config.setdefault("whisper_api_base_url", settings.whisper_api_base_url)
+    config.setdefault("xunfei_appid", settings.xunfei_appid)
+    config.setdefault("subtitle_asr_engine", "whisper")
+    config.setdefault("subtitle_faster_whisper_model", "base")
+    config.setdefault("subtitle_whisper_api_model", "whisper-1")
+    config.setdefault("subtitle_target_language", "简体中文")
     return config
 
 

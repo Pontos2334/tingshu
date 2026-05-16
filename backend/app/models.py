@@ -54,6 +54,8 @@ class AudioRecordOut(BaseModel):
     is_favorite: bool = False
     group_id: Optional[str] = None
     chunk_index: int = 0
+    is_merged: bool = False
+    source_group_id: Optional[str] = None
     created_at: Optional[datetime] = None
 
     @field_validator("styles", mode="before")
@@ -78,11 +80,13 @@ class AudioGroupSummaryOut(BaseModel):
     total_duration: float = 0
     created_at: Optional[datetime] = None
     has_favorite: bool = False
+    has_merged: bool = False
     source_type: str
 
 
 class AudioGroupDetailOut(AudioGroupSummaryOut):
     records: list[AudioRecordOut] = []
+    merged_record: Optional[AudioRecordOut] = None
 
 
 # 播放列表模型
@@ -211,3 +215,97 @@ class AIGenerationOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── 字幕翻译模型 ──────────────────────────────────────────
+
+class SubtitleProjectCreate(BaseModel):
+    name: str
+    asr_engine: str = "whisper"
+    faster_whisper_model: str = "base"
+    whisper_api_model: str = "whisper-1"
+    target_language: str = "简体中文"
+    translator_model: str = "deepseek-chat"
+    context_hint: Optional[str] = None
+
+
+class SubtitleProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    asr_engine: Optional[str] = None
+    faster_whisper_model: Optional[str] = None
+    whisper_api_model: Optional[str] = None
+    target_language: Optional[str] = None
+    translator_model: Optional[str] = None
+    context_hint: Optional[str] = None
+
+
+class SubtitleSegmentOut(BaseModel):
+    id: int
+    segment_index: int
+    start_time: float
+    end_time: float
+    original_text: str
+    translated_text: Optional[str] = None
+    is_edited: bool = False
+
+    class Config:
+        from_attributes = True
+
+
+class SubtitleSegmentUpdate(BaseModel):
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+    original_text: Optional[str] = None
+    translated_text: Optional[str] = None
+
+
+class SubtitleOutputOut(BaseModel):
+    id: int
+    format: str
+    variant: str
+    file_size: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SubtitleProjectOut(BaseModel):
+    id: int
+    name: str
+    video_filename: Optional[str] = None
+    video_duration: Optional[float] = None
+    video_size: Optional[int] = None
+    status: str
+    current_step: Optional[str] = None
+    asr_engine: str
+    target_language: str
+    segment_count: int = 0
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SubtitleProjectDetail(SubtitleProjectOut):
+    video_path: Optional[str] = None
+    audio_path: Optional[str] = None
+    error_message: Optional[str] = None
+    faster_whisper_model: str = "base"
+    whisper_api_model: str = "whisper-1"
+    detected_language: Optional[str] = None
+    translator_model: str = "deepseek-chat"
+    context_hint: Optional[str] = None
+    segments: list[SubtitleSegmentOut] = []
+    outputs: list[SubtitleOutputOut] = []
+
+
+class SubtitleProcessRequest(BaseModel):
+    target_step: str  # "extract" | "transcribe" | "translate"
+    force: bool = False
+
+
+class SubtitleExportRequest(BaseModel):
+    format: str = "srt"  # "srt" | "vtt" | "txt"
+    variant: str = "bilingual"  # "original" | "translated" | "bilingual"

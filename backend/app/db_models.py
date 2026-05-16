@@ -27,6 +27,8 @@ class AudioRecord(Base):
     group_id = Column(String)
     chunk_index = Column(Integer, default=0)
     task_id = Column(String, ForeignKey("synthesis_tasks.task_id"), nullable=True, index=True)
+    is_merged = Column(Boolean, default=False)
+    source_group_id = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=utcnow)
 
     playlist_tracks = relationship("PlaylistTrack", back_populates="audio", cascade="all, delete-orphan")
@@ -141,3 +143,64 @@ class AIGeneration(Base):
     generated_text = Column(Text, nullable=False)
     model = Column(String)
     created_at = Column(DateTime, default=utcnow)
+
+
+class SubtitleProject(Base):
+    __tablename__ = "subtitle_projects"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    video_path = Column(String, nullable=True)
+    audio_path = Column(String, nullable=True)
+    video_filename = Column(String, nullable=True)
+    video_duration = Column(Float, nullable=True)
+    video_size = Column(Integer, nullable=True)
+
+    status = Column(String, default="draft")
+    current_step = Column(String, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    asr_engine = Column(String, default="whisper")
+    faster_whisper_model = Column(String, default="base")
+    whisper_api_model = Column(String, default="whisper-1")
+    detected_language = Column(String, nullable=True)
+
+    target_language = Column(String, default="简体中文")
+    translator_model = Column(String, default="deepseek-chat")
+    context_hint = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    segments = relationship("SubtitleSegment", back_populates="project", cascade="all, delete-orphan")
+    outputs = relationship("SubtitleOutput", back_populates="project", cascade="all, delete-orphan")
+
+
+class SubtitleSegment(Base):
+    __tablename__ = "subtitle_segments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("subtitle_projects.id"), nullable=False, index=True)
+    segment_index = Column(Integer, nullable=False)
+    start_time = Column(Float, nullable=False)
+    end_time = Column(Float, nullable=False)
+    original_text = Column(Text, nullable=False)
+    translated_text = Column(Text, nullable=True)
+    is_edited = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=utcnow)
+
+    project = relationship("SubtitleProject", back_populates="segments")
+
+
+class SubtitleOutput(Base):
+    __tablename__ = "subtitle_outputs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("subtitle_projects.id"), nullable=False, index=True)
+    format = Column(String, nullable=False)
+    variant = Column(String, nullable=False)
+    file_path = Column(String, nullable=False)
+    file_size = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+    project = relationship("SubtitleProject", back_populates="outputs")
