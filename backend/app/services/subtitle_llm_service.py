@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import httpx
 
 MAX_CHARS_PER_BATCH = 3000
+MAX_SEGMENTS_PER_BATCH = 50
 CONTEXT_WINDOW = 3
 
 
@@ -40,6 +41,8 @@ def split_batches(segments: list[dict]) -> list[tuple[int, int, list[dict]]]:
         batch_end = i
         batch_chars = 0
         while batch_end < total and batch_chars < MAX_CHARS_PER_BATCH:
+            if batch_end - i >= MAX_SEGMENTS_PER_BATCH:
+                break
             seg_text = segments[batch_end]["text"] or ""
             if batch_chars + len(seg_text) > MAX_CHARS_PER_BATCH and batch_end > i:
                 break
