@@ -23,6 +23,13 @@ logger = logging.getLogger("tingshu.subtitle.asr")
 _loaded_models: dict[str, object] = {}
 
 
+def build_audio_transcriptions_url(base_url: str) -> str:
+    endpoint = base_url.rstrip("/")
+    if not endpoint.endswith("/audio/transcriptions"):
+        endpoint = f"{endpoint}/audio/transcriptions"
+    return endpoint
+
+
 async def transcribe_whisper(
     audio_path: str,
     model: str = "base",
@@ -38,9 +45,10 @@ async def transcribe_whisper(
         if model not in _loaded_models:
             from faster_whisper import WhisperModel
             try:
-                _loaded_models[model] = WhisperModel(model, device="auto", compute_type="float16")
-            except Exception:
-                _loaded_models[model] = WhisperModel(model, device="cpu", compute_type="int8")
+                _loaded_models[model] = WhisperModel(model, device="cuda", compute_type="float16")
+            except Exception as exc:
+                from app.services.subtitle_runtime_check import _normalize_cuda_error
+                raise RuntimeError(_normalize_cuda_error(str(exc))) from exc
         return _loaded_models[model]
 
     whisper_model = await asyncio.to_thread(_run)
@@ -88,13 +96,15 @@ async def transcribe_whisper_api(
     if emit_event:
         await emit_event({"type": "progress", "step": "transcribe", "message": "正在上传音频到 Whisper API...", "progress": 0})
 
-    async with httpx.AsyncClient(base_url=url, timeout=300) as client:
+    endpoint = build_audio_transcriptions_url(url)
+
+    async with httpx.AsyncClient(timeout=300) as client:
         with open(audio_path, "rb") as f:
             files = {"file": (os.path.basename(audio_path), f, "audio/wav")}
             data = {"model": model, "response_format": "verbose_json"}
             if language:
                 data["language"] = language
-            resp = await client.post("/v1/audio/transcriptions", headers={"Authorization": f"Bearer {key}"}, files=files, data=data)
+            resp = await client.post(endpoint, headers={"Authorization": f"Bearer {key}"}, files=files, data=data)
             resp.raise_for_status()
 
     result = resp.json()

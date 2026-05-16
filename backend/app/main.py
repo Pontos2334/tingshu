@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from app.database import init_db, async_session
 from app.routers import tts, voices, audio, playlists, settings, tts_tasks, ai_generate, subtitle
 from app.config import settings as app_settings
+from app.services.subtitle_runtime_check import setup_nvidia_library_path
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,6 +22,7 @@ logger = logging.getLogger("tingshu")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("听书 TTS 工具启动中...")
+    setup_nvidia_library_path()
     await init_db()
     logger.info("数据库初始化完成")
     await _reset_running_tasks()
@@ -53,7 +55,14 @@ async def _reset_running_subtitle_projects():
         result = await db.execute(
             update(SubtitleProject)
             .where(SubtitleProject.current_step.isnot(None))
-            .values(status="failed", current_step=None, error_message="服务重启中断")
+            .values(
+                status="failed",
+                current_step=None,
+                error_message="服务重启中断",
+                error_step="service_restart",
+                error_code="service_restart",
+                error_detail="服务重启时字幕管线仍在运行，任务已中断。",
+            )
         )
         if result.rowcount > 0:
             await db.commit()

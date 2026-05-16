@@ -14,14 +14,16 @@ from app.models import (
     SubtitleSegmentOut, SubtitleSegmentUpdate,
     SubtitleProcessRequest, SubtitleExportRequest, SubtitleOutputOut,
 )
-from app.services.subtitle_audio_extractor import ALLOWED_VIDEO_EXTENSIONS
+from app.services.subtitle_audio_extractor import ALLOWED_VIDEO_EXTENSIONS, ALLOWED_AUDIO_EXTENSIONS
+from app.services.subtitle_runtime_check import check_local_whisper_gpu_runtime
 from app.services.subtitle_storage import (
-    write_video_file, write_video_stream, write_subtitle_file,
-    get_video_full_path, get_subtitle_full_path, delete_file,
+    write_video_stream, write_audio_stream, write_subtitle_file,
+    get_subtitle_full_path, delete_file,
 )
 from app.services.subtitle_export_service import generate_content, parse_srt
 from app.services.subtitle_pipeline_service import (
-    start_pipeline, is_running, cancel_task, subscribe, unsubscribe, emit,
+    SegmentCounts, get_segment_counts, normalize_target_step, plan_pipeline_steps,
+    start_pipeline, is_running, cancel_task, subscribe, unsubscribe,
 )
 from app.config import settings as app_settings
 
@@ -35,6 +37,33 @@ def _check_video_ext(filename: str) -> bool:
     return ext in ALLOWED_VIDEO_EXTENSIONS
 
 
+def _check_audio_ext(filename: str) -> bool:
+    ext = os.path.splitext(filename)[1].lower()
+    return ext in ALLOWED_AUDIO_EXTENSIONS
+
+
+async def _delete_project_outputs(db: AsyncSession, project_id: int):
+    out_result = await db.execute(select(SubtitleOutput).where(SubtitleOutput.project_id == project_id))
+    for out in out_result.scalars().all():
+        delete_file(out.file_path, "subtitle")
+        await db.delete(out)
+
+
+async def _clear_subtitle_data(db: AsyncSession, project_id: int, clear_segments: bool = True):
+    await _delete_project_outputs(db, project_id)
+    if clear_segments:
+        from sqlalchemy import delete as sql_delete
+        await db.execute(sql_delete(SubtitleSegment).where(SubtitleSegment.project_id == project_id))
+
+
+def _clear_project_error(project: SubtitleProject):
+    project.current_step = None
+    project.error_message = None
+    project.error_step = None
+    project.error_code = None
+    project.error_detail = None
+
+
 # ── 项目 CRUD ──────────────────────────────────────────
 
 @router.post("/projects", response_model=SubtitleProjectOut)
@@ -44,6 +73,7 @@ async def create_project(data: SubtitleProjectCreate, db: AsyncSession = Depends
         asr_engine=data.asr_engine,
         faster_whisper_model=data.faster_whisper_model,
         whisper_api_model=data.whisper_api_model,
+        source_language=data.source_language,
         target_language=data.target_language,
         translator_model=data.translator_model,
         context_hint=data.context_hint,
@@ -51,7 +81,7 @@ async def create_project(data: SubtitleProjectCreate, db: AsyncSession = Depends
     db.add(project)
     await db.commit()
     await db.refresh(project)
-    return _project_to_out(project, 0)
+    return _project_to_out(project, SegmentCounts())
 
 
 @router.get("/projects")
@@ -74,14 +104,10 @@ async def list_projects(
     result = await db.execute(query.order_by(SubtitleProject.created_at.desc()).offset(offset).limit(page_size))
     projects = result.scalars().all()
 
-    # Get segment counts
     items = []
     for p in projects:
-        cnt_result = await db.execute(
-            select(func.count(SubtitleSegment.id)).where(SubtitleSegment.project_id == p.id)
-        )
-        seg_count = cnt_result.scalar() or 0
-        items.append(_project_to_out(p, seg_count))
+        counts = await get_segment_counts(db, p.id)
+        items.append(_project_to_out(p, counts))
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
@@ -102,6 +128,11 @@ async def get_project(project_id: int, db: AsyncSession = Depends(get_db)):
         select(SubtitleOutput).where(SubtitleOutput.project_id == project_id).order_by(SubtitleOutput.created_at.desc())
     )
     outputs = out_result.scalars().all()
+    counts = SegmentCounts(
+        total=len(segments),
+        translated=sum(1 for s in segments if s.translated_text),
+        polished=sum(1 for s in segments if s.polished_text),
+    )
 
     return SubtitleProjectDetail(
         id=project.id,
@@ -114,14 +145,20 @@ async def get_project(project_id: int, db: AsyncSession = Depends(get_db)):
         status=project.status,
         current_step=project.current_step,
         error_message=project.error_message,
+        error_step=project.error_step,
+        error_code=project.error_code,
+        error_detail=project.error_detail,
         asr_engine=project.asr_engine,
         faster_whisper_model=project.faster_whisper_model,
         whisper_api_model=project.whisper_api_model,
+        source_language=project.source_language,
         detected_language=project.detected_language,
         target_language=project.target_language,
         translator_model=project.translator_model,
         context_hint=project.context_hint,
-        segment_count=len(segments),
+        segment_count=counts.total,
+        translated_count=counts.translated,
+        polished_count=counts.polished,
         created_at=project.created_at,
         updated_at=project.updated_at,
         segments=[SubtitleSegmentOut.model_validate(s) for s in segments],
@@ -142,9 +179,8 @@ async def update_project(project_id: int, data: SubtitleProjectUpdate, db: Async
     await db.commit()
     await db.refresh(project)
 
-    cnt_result = await db.execute(select(func.count(SubtitleSegment.id)).where(SubtitleSegment.project_id == project_id))
-    seg_count = cnt_result.scalar() or 0
-    return _project_to_out(project, seg_count)
+    counts = await get_segment_counts(db, project_id)
+    return _project_to_out(project, counts)
 
 
 @router.delete("/projects/{project_id}")
@@ -188,6 +224,8 @@ async def upload_video(project_id: int, file: UploadFile = File(...), db: AsyncS
     # Delete old video if exists
     if project.video_path:
         delete_file(project.video_path, "video")
+    if project.audio_path:
+        delete_file(project.audio_path, "subtitle")
 
     max_bytes = app_settings.max_video_size_mb * 1024 * 1024
     try:
@@ -196,12 +234,53 @@ async def upload_video(project_id: int, file: UploadFile = File(...), db: AsyncS
         raise HTTPException(400, str(e))
 
     project.video_path = rel_path
+    project.audio_path = None
     project.video_filename = file.filename
+    project.video_duration = None
     project.video_size = total_size
     project.status = "uploaded"
+    _clear_project_error(project)
+    await _clear_subtitle_data(db, project_id, clear_segments=True)
     await db.commit()
 
     return {"message": "视频上传成功", "video_path": rel_path, "size": total_size}
+
+
+# ── 音频上传 ──────────────────────────────────────────
+
+@router.post("/projects/{project_id}/audio")
+async def upload_audio(project_id: int, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(SubtitleProject).where(SubtitleProject.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "项目不存在")
+
+    if not _check_audio_ext(file.filename):
+        raise HTTPException(400, f"不支持的音频格式，支持: {', '.join(sorted(ALLOWED_AUDIO_EXTENSIONS))}")
+
+    # Delete old audio if exists
+    if project.video_path:
+        delete_file(project.video_path, "video")
+    if project.audio_path:
+        delete_file(project.audio_path, "subtitle")
+
+    max_bytes = app_settings.max_video_size_mb * 1024 * 1024
+    try:
+        rel_path, total_size = await write_audio_stream(file.filename, file, max_bytes)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    project.video_path = None
+    project.audio_path = rel_path
+    project.video_filename = file.filename
+    project.video_duration = None
+    project.video_size = total_size
+    project.status = "audio_extracted"
+    _clear_project_error(project)
+    await _clear_subtitle_data(db, project_id, clear_segments=True)
+    await db.commit()
+
+    return {"message": "音频上传成功", "audio_path": rel_path, "size": total_size}
 
 
 # ── SRT 导入 ──────────────────────────────────────────
@@ -218,9 +297,7 @@ async def import_srt(project_id: int, file: UploadFile = File(...), db: AsyncSes
     if not segments:
         raise HTTPException(400, "无法解析 SRT 文件或文件为空")
 
-    # Clear old segments
-    from sqlalchemy import delete as sql_delete
-    await db.execute(sql_delete(SubtitleSegment).where(SubtitleSegment.project_id == project_id))
+    await _clear_subtitle_data(db, project_id, clear_segments=True)
 
     for i, seg in enumerate(segments):
         db.add(SubtitleSegment(
@@ -232,9 +309,18 @@ async def import_srt(project_id: int, file: UploadFile = File(...), db: AsyncSes
         ))
 
     project.status = "transcribed"
+    _clear_project_error(project)
     await db.commit()
 
     return {"message": "SRT 导入成功", "segment_count": len(segments)}
+
+
+# ── 本地 Whisper GPU 诊断 ──────────────────────────────
+
+@router.get("/runtime/local-whisper")
+async def local_whisper_runtime():
+    """Return local Whisper GPU runtime diagnostics."""
+    return check_local_whisper_gpu_runtime()
 
 
 # ── 管线处理 ──────────────────────────────────────────
@@ -249,26 +335,23 @@ async def process_project(project_id: int, data: SubtitleProcessRequest, db: Asy
     if is_running(project_id):
         raise HTTPException(409, "项目正在处理中")
 
-    if data.target_step not in ("extract", "transcribe", "translate"):
+    if data.target_step not in {"extract", "transcribe", "translate", "polish_source", "translate_polish", "polish", "polish_no_translate"}:
         raise HTTPException(400, "无效的目标步骤")
 
-    # Validate prerequisites
-    if data.target_step in ("transcribe", "translate") and not project.audio_path and not project.video_path:
-        if not data.force:
-            # Allow translate if segments already exist (e.g. from SRT import)
-            if data.target_step == "translate":
-                cnt_result = await db.execute(
-                    select(func.count(SubtitleSegment.id)).where(SubtitleSegment.project_id == project_id)
-                )
-                if (cnt_result.scalar() or 0) > 0:
-                    pass  # segments exist, allow translate
-                else:
-                    raise HTTPException(400, "请先上传视频或导入 SRT")
-            else:
-                raise HTTPException(400, "请先上传视频或导入 SRT")
+    target_step = normalize_target_step(data.target_step)
+    counts = await get_segment_counts(db, project_id)
+    try:
+        planned_steps = plan_pipeline_steps(project, counts, target_step, data.force)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
 
-    start_pipeline(project_id, data.target_step, data.force)
-    return {"message": "管线已启动", "target_step": data.target_step}
+    if project.asr_engine == "whisper" and "transcribe" in planned_steps:
+        gpu_status = check_local_whisper_gpu_runtime()
+        if not gpu_status["ok"]:
+            raise HTTPException(400, gpu_status["message"])
+
+    start_pipeline(project_id, target_step, data.force)
+    return {"message": "管线已启动", "target_step": target_step, "planned_steps": planned_steps}
 
 
 @router.post("/projects/{project_id}/cancel")
@@ -287,7 +370,8 @@ async def project_events(project_id: int, db: AsyncSession = Depends(get_db)):
         proj_result = await db.execute(select(SubtitleProject).where(SubtitleProject.id == project_id))
         proj = proj_result.scalar_one_or_none()
         if proj:
-            yield f"data: {_json.dumps({'type': 'snapshot', 'project_id': project_id, 'status': proj.status, 'current_step': proj.current_step}, ensure_ascii=False)}\n\n"
+            counts = await get_segment_counts(db, project_id)
+            yield f"data: {_json.dumps({'type': 'snapshot', 'project_id': project_id, 'status': proj.status, 'current_step': proj.current_step, 'error_message': proj.error_message, 'error_step': proj.error_step, 'error_code': proj.error_code, 'error_detail': proj.error_detail, 'segment_count': counts.total, 'translated_count': counts.translated, 'polished_count': counts.polished}, ensure_ascii=False)}\n\n"
 
         queue = subscribe(project_id)
         try:
@@ -324,7 +408,14 @@ async def update_segment(project_id: int, segment_id: int, data: SubtitleSegment
     update_data = data.model_dump(exclude_none=True)
     for key, value in update_data.items():
         setattr(segment, key, value)
+        if key == "original_text":
+            segment.original_edited = True
+        elif key == "polished_text":
+            segment.polished_edited = True
+        elif key == "translated_text":
+            segment.translated_edited = True
     segment.is_edited = True
+    await _delete_project_outputs(db, project_id)
     await db.commit()
     await db.refresh(segment)
     return SubtitleSegmentOut.model_validate(segment)
@@ -353,6 +444,7 @@ async def export_subtitles(project_id: int, data: SubtitleExportRequest, db: Asy
             "text": s.original_text,
             "original_text": s.original_text,
             "translated_text": s.translated_text,
+            "polished_text": s.polished_text,
         }
         for s in segments
     ]
@@ -397,7 +489,7 @@ async def download_output(project_id: int, output_id: int, db: AsyncSession = De
 
     ext_map = {"srt": ".srt", "vtt": ".vtt", "txt": ".txt"}
     ext = ext_map.get(output.format, ".txt")
-    variant_map = {"original": "原文", "translated": "译文", "bilingual": "双语"}
+    variant_map = {"original": "原文", "translated": "译文", "bilingual": "双语", "polished": "润色"}
     variant_name = variant_map.get(output.variant, output.variant)
 
     # Get project name for filename
@@ -411,7 +503,9 @@ async def download_output(project_id: int, output_id: int, db: AsyncSession = De
 
 # ── Helper ──────────────────────────────────────────
 
-def _project_to_out(project: SubtitleProject, segment_count: int) -> SubtitleProjectOut:
+def _project_to_out(project: SubtitleProject, counts: SegmentCounts | int) -> SubtitleProjectOut:
+    if isinstance(counts, int):
+        counts = SegmentCounts(total=counts)
     return SubtitleProjectOut(
         id=project.id,
         name=project.name,
@@ -421,8 +515,11 @@ def _project_to_out(project: SubtitleProject, segment_count: int) -> SubtitlePro
         status=project.status,
         current_step=project.current_step,
         asr_engine=project.asr_engine,
+        source_language=project.source_language,
         target_language=project.target_language,
-        segment_count=segment_count,
+        segment_count=counts.total,
+        translated_count=counts.translated,
+        polished_count=counts.polished,
         created_at=project.created_at,
         updated_at=project.updated_at,
     )

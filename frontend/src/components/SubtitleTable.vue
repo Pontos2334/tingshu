@@ -25,6 +25,14 @@
           <el-input v-else type="textarea" v-model="editValue" :autosize="{ minRows: 1, maxRows: 4 }" @blur="saveEdit(row)" @keyup.ctrl.enter="saveEdit(row)" autofocus />
         </template>
       </el-table-column>
+      <el-table-column label="润色" min-width="200">
+        <template #default="{ row }">
+          <div v-if="editingId !== row.id || editingField !== 'polished'" class="text-cell polished" @dblclick="startEdit(row, 'polished', row.polished_text || '')">
+            {{ row.polished_text || '—' }}
+          </div>
+          <el-input v-else type="textarea" v-model="editValue" :autosize="{ minRows: 1, maxRows: 4 }" @blur="saveEdit(row)" @keyup.ctrl.enter="saveEdit(row)" autofocus />
+        </template>
+      </el-table-column>
       <el-table-column label="译文" min-width="200">
         <template #default="{ row }">
           <div v-if="editingId !== row.id || editingField !== 'translated'" class="text-cell translated" @dblclick="startEdit(row, 'translated', row.translated_text || '')">
@@ -73,7 +81,7 @@ async function saveEdit(row) {
   editingId.value = null
   editingField.value = ''
 
-  const fieldMap = { start: 'start_time', end: 'end_time', original: 'original_text', translated: 'translated_text' }
+  const fieldMap = { start: 'start_time', end: 'end_time', original: 'original_text', translated: 'translated_text', polished: 'polished_text' }
   const apiField = fieldMap[field]
   if (!apiField) return
 
@@ -103,4 +111,5 @@ function onSelectionChange() {}
 }
 .text-cell:hover { background: #f0f9ff; border-radius: 4px; }
 .text-cell.translated { color: var(--el-color-primary); }
+.text-cell.polished { color: var(--el-color-success); }
 </style>

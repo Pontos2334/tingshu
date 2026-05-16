@@ -13,6 +13,10 @@ ALLOWED_VIDEO_EXTENSIONS = {
     ".webm", ".m4v", ".mpeg", ".mpg", ".ts",
 }
 
+ALLOWED_AUDIO_EXTENSIONS = {
+    ".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac", ".wma", ".opus",
+}
+
 
 async def check_ffmpeg() -> bool:
     try:

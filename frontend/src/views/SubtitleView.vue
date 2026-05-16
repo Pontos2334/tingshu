@@ -24,7 +24,7 @@
       </div>
       <div class="list-footer">
         <el-pagination
-          small layout="prev, pager, next"
+          size="small" layout="prev, pager, next"
           :total="total" :page-size="pageSize"
           v-model:current-page="store.currentPage"
           @current-change="loadProjects"
@@ -40,6 +40,7 @@
             <h2>{{ store.project.name }}</h2>
             <el-tag :type="statusType(store.project.status)" size="small">{{ statusLabel(store.project.status) }}</el-tag>
             <div class="header-actions">
+              <el-button size="small" @click="showEditDialog = true">项目设置</el-button>
               <el-button size="small" @click="refreshProject">刷新</el-button>
               <el-button size="small" type="danger" @click="handleDelete">删除</el-button>
             </div>
@@ -55,6 +56,15 @@
         <!-- Pipeline Section -->
         <div class="surface-card section-card">
           <h4>处理管线</h4>
+          <el-alert
+            v-if="store.project.asr_engine === 'whisper' && gpuStatus && !gpuStatus.ok"
+            type="warning"
+            title="本地 Whisper GPU 运行时不可用"
+            :description="gpuStatus.message"
+            show-icon
+            :closable="false"
+            style="margin-bottom: 12px"
+          />
           <SubtitlePipeline
             :project="store.project"
             :has-segments="store.segments.length > 0"
@@ -89,6 +99,7 @@
               <el-option label="双语" value="bilingual" />
               <el-option label="原文" value="original" />
               <el-option label="译文" value="translated" />
+              <el-option label="润色" value="polished" />
             </el-select>
             <el-button type="primary" @click="handleExport" :loading="exporting">导出</el-button>
           </div>
@@ -122,6 +133,18 @@
             <el-option v-for="m in whisperModels" :key="m" :label="m" :value="m" />
           </el-select>
         </el-form-item>
+        <el-form-item v-if="newProject.asr_engine === 'whisper_api'" label="Whisper API 模型">
+          <el-input v-model="newProject.whisper_api_model" placeholder="whisper-1" />
+        </el-form-item>
+        <el-form-item label="识别源语言">
+          <el-select v-model="newProject.source_language" style="width: 100%">
+            <el-option label="自动检测" value="auto" />
+            <el-option v-for="lang in sourceLanguages" :key="lang.value" :label="lang.label" :value="lang.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="翻译/润色模型">
+          <el-input v-model="newProject.translator_model" placeholder="deepseek-chat" />
+        </el-form-item>
         <el-form-item label="目标语言">
           <el-select v-model="newProject.target_language" filterable allow-create style="width: 100%">
             <el-option v-for="lang in languages" :key="lang" :label="lang" :value="lang" />
@@ -136,6 +159,51 @@
         <el-button type="primary" @click="handleCreate" :loading="creating">创建</el-button>
       </template>
     </el-dialog>
+
+    <!-- Edit Config Dialog -->
+    <el-dialog v-model="showEditDialog" title="编辑项目配置" width="480px">
+      <el-form label-position="top" v-if="editProject">
+        <el-form-item label="项目名称">
+          <el-input v-model="editProject.name" placeholder="输入项目名称" />
+        </el-form-item>
+        <el-form-item label="ASR 引擎">
+          <el-select v-model="editProject.asr_engine" style="width: 100%">
+            <el-option label="Faster-Whisper (本地)" value="whisper" />
+            <el-option label="OpenAI Whisper API" value="whisper_api" />
+            <el-option label="讯飞语音" value="xunfei" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="editProject.asr_engine === 'whisper'" label="Whisper 模型">
+          <el-select v-model="editProject.faster_whisper_model" style="width: 100%">
+            <el-option v-for="m in whisperModels" :key="m" :label="m" :value="m" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="editProject.asr_engine === 'whisper_api'" label="Whisper API 模型">
+          <el-input v-model="editProject.whisper_api_model" placeholder="whisper-1" />
+        </el-form-item>
+        <el-form-item label="识别源语言">
+          <el-select v-model="editProject.source_language" style="width: 100%">
+            <el-option label="自动检测" value="auto" />
+            <el-option v-for="lang in sourceLanguages" :key="lang.value" :label="lang.label" :value="lang.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="翻译/润色模型">
+          <el-input v-model="editProject.translator_model" placeholder="deepseek-chat" />
+        </el-form-item>
+        <el-form-item label="目标语言">
+          <el-select v-model="editProject.target_language" filterable allow-create style="width: 100%">
+            <el-option v-for="lang in languages" :key="lang" :label="lang" :value="lang" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="上下文提示 (可选)">
+          <el-input v-model="editProject.context_hint" type="textarea" :rows="2" placeholder="描述视频内容以提高翻译质量" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showEditDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSaveEdit" :loading="savingEdit">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -146,8 +214,9 @@ import { useSubtitleStore } from '../stores/subtitle'
 import { useSettingsStore } from '../stores/settings'
 import {
   createSubtitleProject, getSubtitleProjects, getSubtitleProject,
-  deleteSubtitleProject, startSubtitleProcess, cancelSubtitleProcess,
+  updateSubtitleProject, deleteSubtitleProject, startSubtitleProcess, cancelSubtitleProcess,
   exportSubtitles, getSubtitleOutputs, downloadSubtitleOutput, getSubtitleEventsUrl,
+  getLocalWhisperRuntimeStatus,
 } from '../api/subtitle'
 import SubtitleUpload from '../components/SubtitleUpload.vue'
 import SubtitlePipeline from '../components/SubtitlePipeline.vue'
@@ -161,19 +230,33 @@ const total = ref(0)
 const pageSize = 20
 const outputs = ref([])
 const showCreateDialog = ref(false)
+const showEditDialog = ref(false)
 const creating = ref(false)
+const savingEdit = ref(false)
 const exporting = ref(false)
+const editProject = ref(null)
+const gpuStatus = ref(null)
 const exportFormat = ref('srt')
 const exportVariant = ref('bilingual')
 
 const whisperModels = ['tiny', 'base', 'small', 'medium', 'large']
 const languages = ['简体中文', '繁體中文', 'English', '日本語', '한국어', 'Français', 'Deutsch', 'Español']
+const sourceLanguages = [
+  { value: 'zh', label: '中文' },
+  { value: 'en', label: 'English' },
+  { value: 'ja', label: '日本語' },
+  { value: 'ko', label: '한국어' },
+  { value: 'fr', label: 'Français' },
+  { value: 'de', label: 'Deutsch' },
+  { value: 'es', label: 'Español' },
+]
 
 const newProject = ref({
   name: '',
   asr_engine: 'whisper',
   faster_whisper_model: 'base',
   whisper_api_model: 'whisper-1',
+  source_language: 'auto',
   target_language: '简体中文',
   translator_model: 'deepseek-chat',
   context_hint: '',
@@ -187,6 +270,13 @@ function debouncedLoad() {
 
 onMounted(async () => {
   await settingsStore.loadSettings()
+  // Initialize newProject defaults from settings
+  newProject.value.asr_engine = settingsStore.subtitleAsrEngine
+  newProject.value.faster_whisper_model = settingsStore.subtitleFasterWhisperModel
+  newProject.value.whisper_api_model = settingsStore.subtitleWhisperApiModel
+  newProject.value.source_language = settingsStore.subtitleSourceLanguage
+  newProject.value.target_language = settingsStore.subtitleTargetLanguage
+  newProject.value.translator_model = settingsStore.deepseekModel
   await loadProjects()
   if (store.currentProjectId) {
     await selectProjectById(store.currentProjectId)
@@ -213,12 +303,37 @@ async function selectProjectById(id) {
     store.setProject(data)
     store.currentProjectId = id
     outputs.value = data.outputs || []
-    // Connect SSE if pipeline might be running
-    if (['uploaded', 'audio_extracted', 'transcribed'].includes(data.status) && data.current_step) {
-      store.connectSSE(getSubtitleEventsUrl(id))
+    // Sync editProject for the edit dialog
+    editProject.value = {
+      name: data.name,
+      asr_engine: data.asr_engine,
+      faster_whisper_model: data.faster_whisper_model || 'base',
+      whisper_api_model: data.whisper_api_model || 'whisper-1',
+      source_language: data.source_language || 'auto',
+      target_language: data.target_language,
+      translator_model: data.translator_model || 'deepseek-chat',
+      context_hint: data.context_hint || '',
+    }
+    if (data.current_step) {
+      store.connectSSE(getSubtitleEventsUrl(id), refreshProject)
+    }
+    // Check GPU status for local whisper projects
+    if (data.asr_engine === 'whisper') {
+      checkGpuStatus()
+    } else {
+      gpuStatus.value = null
     }
   } catch {
     ElMessage.error('加载项目详情失败')
+  }
+}
+
+async function checkGpuStatus() {
+  try {
+    const { data } = await getLocalWhisperRuntimeStatus()
+    gpuStatus.value = data
+  } catch {
+    gpuStatus.value = { ok: false, missing: ['unknown'], message: '无法获取 GPU 运行时状态' }
   }
 }
 
@@ -249,6 +364,21 @@ async function handleCreate() {
   }
 }
 
+async function handleSaveEdit() {
+  if (!editProject.value || !store.currentProjectId) return
+  savingEdit.value = true
+  try {
+    await updateSubtitleProject(store.currentProjectId, editProject.value)
+    ElMessage.success('项目配置已更新')
+    showEditDialog.value = false
+    await refreshProject()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '保存失败')
+  } finally {
+    savingEdit.value = false
+  }
+}
+
 async function handleDelete() {
   try {
     await ElMessageBox.confirm('确定删除此项目？所有相关文件将被永久删除。', '确认删除', { type: 'warning' })
@@ -261,13 +391,43 @@ async function handleDelete() {
 }
 
 async function handleProcess(targetStep) {
+  if (!store.currentProjectId) return
+  const confirmed = await confirmProcessOverwrite(targetStep)
+  if (!confirmed) return
   try {
-    const needsForce = ['failed', 'canceled', 'completed'].includes(store.project?.status)
-    await startSubtitleProcess(store.currentProjectId, { target_step: targetStep, force: needsForce })
-    store.connectSSE(getSubtitleEventsUrl(store.currentProjectId))
+    await startSubtitleProcess(store.currentProjectId, { target_step: targetStep, force: false })
+    store.connectSSE(getSubtitleEventsUrl(store.currentProjectId), refreshProject)
     ElMessage.success('管线已启动')
   } catch (e) {
     ElMessage.error(e.response?.data?.detail || '启动失败')
+  }
+}
+
+function canonicalTarget(targetStep) {
+  const map = { polish: 'translate_polish', polish_no_translate: 'polish_source' }
+  return map[targetStep] || targetStep
+}
+
+async function confirmProcessOverwrite(targetStep) {
+  const target = canonicalTarget(targetStep)
+  const p = store.project
+  if (!p) return false
+  const messages = []
+  if (target === 'transcribe' && (p.segment_count || 0) > 0) {
+    messages.push('重新识别会替换现有字幕片段，并清空译文、润色和导出文件。')
+  }
+  if (['translate', 'translate_polish'].includes(target) && (p.translated_count || 0) > 0) {
+    messages.push('重新翻译会覆盖未手工编辑的已有译文，并清空导出文件。')
+  }
+  if (['polish_source', 'translate_polish'].includes(target) && (p.polished_count || 0) > 0) {
+    messages.push('重新润色会覆盖未手工编辑的已有润色文本，并清空导出文件。')
+  }
+  if (!messages.length) return true
+  try {
+    await ElMessageBox.confirm(messages.join('\n'), '确认重新处理', { type: 'warning' })
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -308,17 +468,17 @@ async function handleDownload(out) {
 }
 
 function statusType(status) {
-  const map = { draft: 'info', uploaded: '', audio_extracted: 'warning', transcribed: 'warning', translated: 'success', completed: 'success', failed: 'danger', canceled: 'warning' }
+  const map = { draft: 'info', uploaded: '', audio_extracted: 'warning', transcribed: 'warning', translated: 'success', polished: 'success', completed: 'success', failed: 'danger', canceled: 'warning' }
   return map[status] || 'info'
 }
 
 function statusLabel(status) {
-  const map = { draft: '草稿', uploaded: '已上传', audio_extracted: '已提取', transcribed: '已识别', translated: '已翻译', completed: '完成', failed: '失败', canceled: '已取消' }
+  const map = { draft: '草稿', uploaded: '已上传', audio_extracted: '已提取', transcribed: '已识别', translated: '已翻译', polished: '已润色', completed: '完成', failed: '失败', canceled: '已取消' }
   return map[status] || status
 }
 
 function variantLabel(v) {
-  const map = { original: '原文', translated: '译文', bilingual: '双语' }
+  const map = { original: '原文', translated: '译文', bilingual: '双语', polished: '润色' }
   return map[v] || v
 }
 </script>

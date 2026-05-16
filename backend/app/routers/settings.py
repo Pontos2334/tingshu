@@ -32,6 +32,7 @@ class SettingsUpdate(BaseModel):
     subtitle_asr_engine: str | None = None
     subtitle_faster_whisper_model: str | None = None
     subtitle_whisper_api_model: str | None = None
+    subtitle_source_language: str | None = None
     subtitle_target_language: str | None = None
 
 
@@ -58,11 +59,14 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
         config[f"{key}_set"] = bool(actual)
 
     config.setdefault("default_voice", "冰糖")
+    config.setdefault("deepseek_base_url", settings.deepseek_base_url)
+    config.setdefault("deepseek_model", settings.deepseek_model)
     config.setdefault("whisper_api_base_url", settings.whisper_api_base_url)
     config.setdefault("xunfei_appid", settings.xunfei_appid)
     config.setdefault("subtitle_asr_engine", "whisper")
     config.setdefault("subtitle_faster_whisper_model", "base")
     config.setdefault("subtitle_whisper_api_model", "whisper-1")
+    config.setdefault("subtitle_source_language", "auto")
     config.setdefault("subtitle_target_language", "简体中文")
     return config
 

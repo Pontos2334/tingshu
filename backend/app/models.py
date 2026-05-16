@@ -224,6 +224,7 @@ class SubtitleProjectCreate(BaseModel):
     asr_engine: str = "whisper"
     faster_whisper_model: str = "base"
     whisper_api_model: str = "whisper-1"
+    source_language: str = "auto"
     target_language: str = "简体中文"
     translator_model: str = "deepseek-chat"
     context_hint: Optional[str] = None
@@ -234,6 +235,7 @@ class SubtitleProjectUpdate(BaseModel):
     asr_engine: Optional[str] = None
     faster_whisper_model: Optional[str] = None
     whisper_api_model: Optional[str] = None
+    source_language: Optional[str] = None
     target_language: Optional[str] = None
     translator_model: Optional[str] = None
     context_hint: Optional[str] = None
@@ -246,7 +248,11 @@ class SubtitleSegmentOut(BaseModel):
     end_time: float
     original_text: str
     translated_text: Optional[str] = None
+    polished_text: Optional[str] = None
     is_edited: bool = False
+    original_edited: bool = False
+    polished_edited: bool = False
+    translated_edited: bool = False
 
     class Config:
         from_attributes = True
@@ -257,6 +263,7 @@ class SubtitleSegmentUpdate(BaseModel):
     end_time: Optional[float] = None
     original_text: Optional[str] = None
     translated_text: Optional[str] = None
+    polished_text: Optional[str] = None
 
 
 class SubtitleOutputOut(BaseModel):
@@ -279,8 +286,11 @@ class SubtitleProjectOut(BaseModel):
     status: str
     current_step: Optional[str] = None
     asr_engine: str
+    source_language: str = "auto"
     target_language: str
     segment_count: int = 0
+    translated_count: int = 0
+    polished_count: int = 0
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -292,6 +302,9 @@ class SubtitleProjectDetail(SubtitleProjectOut):
     video_path: Optional[str] = None
     audio_path: Optional[str] = None
     error_message: Optional[str] = None
+    error_step: Optional[str] = None
+    error_code: Optional[str] = None
+    error_detail: Optional[str] = None
     faster_whisper_model: str = "base"
     whisper_api_model: str = "whisper-1"
     detected_language: Optional[str] = None
@@ -302,10 +315,10 @@ class SubtitleProjectDetail(SubtitleProjectOut):
 
 
 class SubtitleProcessRequest(BaseModel):
-    target_step: str  # "extract" | "transcribe" | "translate"
+    target_step: str  # "extract" | "transcribe" | "translate" | "polish"
     force: bool = False
 
 
 class SubtitleExportRequest(BaseModel):
     format: str = "srt"  # "srt" | "vtt" | "txt"
-    variant: str = "bilingual"  # "original" | "translated" | "bilingual"
+    variant: str = "bilingual"  # "original" | "translated" | "bilingual" | "polished"

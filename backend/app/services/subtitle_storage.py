@@ -82,6 +82,28 @@ async def write_video_stream(filename: str, file_obj, max_bytes: int) -> tuple[s
     return relative_path, total
 
 
+async def write_audio_stream(filename: str, file_obj, max_bytes: int) -> tuple[str, int]:
+    """Stream-upload an audio file to subtitle storage. Raises ValueError if too large."""
+    ext = os.path.splitext(filename)[1] or ".wav"
+    relative_path = build_relative_subtitle_path(ext)
+    full_path = get_subtitle_full_path(relative_path)
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+    chunk_size = 1024 * 1024
+    total = 0
+    async with aiofiles.open(full_path, "wb") as f:
+        while True:
+            chunk = await file_obj.read(chunk_size)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                await f.close()
+                os.remove(full_path)
+                raise ValueError(f"文件过大，最大 {max_bytes // (1024*1024)}MB")
+            await f.write(chunk)
+    return relative_path, total
+
+
 async def write_subtitle_file(content: str, extension: str = "srt") -> tuple[str, str]:
     relative_path = build_relative_subtitle_path(extension)
     full_path = get_subtitle_full_path(relative_path)

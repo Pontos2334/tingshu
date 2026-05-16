@@ -159,10 +159,14 @@ class SubtitleProject(Base):
     status = Column(String, default="draft")
     current_step = Column(String, nullable=True)
     error_message = Column(Text, nullable=True)
+    error_step = Column(String, nullable=True)
+    error_code = Column(String, nullable=True)
+    error_detail = Column(Text, nullable=True)
 
     asr_engine = Column(String, default="whisper")
     faster_whisper_model = Column(String, default="base")
     whisper_api_model = Column(String, default="whisper-1")
+    source_language = Column(String, default="auto")
     detected_language = Column(String, nullable=True)
 
     target_language = Column(String, default="简体中文")
@@ -186,7 +190,11 @@ class SubtitleSegment(Base):
     end_time = Column(Float, nullable=False)
     original_text = Column(Text, nullable=False)
     translated_text = Column(Text, nullable=True)
+    polished_text = Column(Text, nullable=True)
     is_edited = Column(Boolean, default=False)
+    original_edited = Column(Boolean, default=False)
+    polished_edited = Column(Boolean, default=False)
+    translated_edited = Column(Boolean, default=False)
     created_at = Column(DateTime, default=utcnow)
 
     project = relationship("SubtitleProject", back_populates="segments")

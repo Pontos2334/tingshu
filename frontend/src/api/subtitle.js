@@ -15,6 +15,14 @@ export const uploadSubtitleVideo = (id, formData, onProgress) =>
     onUploadProgress: onProgress,
   })
 
+// Audio upload
+export const uploadSubtitleAudio = (id, formData, onProgress) =>
+  api.post(`/subtitle/projects/${id}/audio`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 600000,
+    onUploadProgress: onProgress,
+  })
+
 // Import SRT
 export const importSubtitleSrt = (id, formData) =>
   api.post(`/subtitle/projects/${id}/import-srt`, formData, {
@@ -40,3 +48,6 @@ export function getSubtitleEventsUrl(id) {
   const base = api.defaults.baseURL || ''
   return `${base}/subtitle/projects/${id}/events`
 }
+
+// Runtime diagnostics
+export const getLocalWhisperRuntimeStatus = () => api.get('/subtitle/runtime/local-whisper')

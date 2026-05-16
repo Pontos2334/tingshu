@@ -10,6 +10,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const adminToken = ref(localStorage.getItem('admin_token') || '')
   const deepseekApiKey = ref('')
   const deepseekApiKeySet = ref(false)
+  const deepseekBaseUrl = ref('https://api.deepseek.com/v1')
+  const deepseekModel = ref('deepseek-chat')
 
   // Subtitle settings
   const whisperApiKey = ref('')
@@ -23,6 +25,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const subtitleAsrEngine = ref('whisper')
   const subtitleFasterWhisperModel = ref('base')
   const subtitleWhisperApiModel = ref('whisper-1')
+  const subtitleSourceLanguage = ref('auto')
   const subtitleTargetLanguage = ref('简体中文')
 
   function setAdminToken(token) {
@@ -39,6 +42,8 @@ export const useSettingsStore = defineStore('settings', () => {
       const { data } = await api.get('/settings')
       apiKeySet.value = data.mimo_api_key_set || false
       deepseekApiKeySet.value = data.deepseek_api_key_set || false
+      if (data.deepseek_base_url) deepseekBaseUrl.value = data.deepseek_base_url
+      if (data.deepseek_model) deepseekModel.value = data.deepseek_model
       if (data.default_voice) defaultVoice.value = data.default_voice
 
       // Subtitle settings
@@ -50,6 +55,7 @@ export const useSettingsStore = defineStore('settings', () => {
       if (data.subtitle_asr_engine) subtitleAsrEngine.value = data.subtitle_asr_engine
       if (data.subtitle_faster_whisper_model) subtitleFasterWhisperModel.value = data.subtitle_faster_whisper_model
       if (data.subtitle_whisper_api_model) subtitleWhisperApiModel.value = data.subtitle_whisper_api_model
+      if (data.subtitle_source_language) subtitleSourceLanguage.value = data.subtitle_source_language
       if (data.subtitle_target_language) subtitleTargetLanguage.value = data.subtitle_target_language
     } catch {
       ElMessage.error('加载设置失败')
@@ -60,6 +66,8 @@ export const useSettingsStore = defineStore('settings', () => {
     const payload = { default_voice: defaultVoice.value }
     if (apiKey.value) payload.mimo_api_key = apiKey.value
     if (deepseekApiKey.value) payload.deepseek_api_key = deepseekApiKey.value
+    if (deepseekBaseUrl.value) payload.deepseek_base_url = deepseekBaseUrl.value
+    if (deepseekModel.value) payload.deepseek_model = deepseekModel.value
     if (whisperApiKey.value) payload.whisper_api_key = whisperApiKey.value
     if (whisperApiBaseUrl.value) payload.whisper_api_base_url = whisperApiBaseUrl.value
     if (xunfeiAppid.value) payload.xunfei_appid = xunfeiAppid.value
@@ -68,6 +76,7 @@ export const useSettingsStore = defineStore('settings', () => {
     payload.subtitle_asr_engine = subtitleAsrEngine.value
     payload.subtitle_faster_whisper_model = subtitleFasterWhisperModel.value
     payload.subtitle_whisper_api_model = subtitleWhisperApiModel.value
+    payload.subtitle_source_language = subtitleSourceLanguage.value
     payload.subtitle_target_language = subtitleTargetLanguage.value
     await api.put('/settings', payload, {
       headers: { 'X-Admin-Token': adminToken.value }
@@ -76,10 +85,10 @@ export const useSettingsStore = defineStore('settings', () => {
 
   return {
     apiKey, apiKeySet, defaultVoice, adminToken,
-    deepseekApiKey, deepseekApiKeySet,
+    deepseekApiKey, deepseekApiKeySet, deepseekBaseUrl, deepseekModel,
     whisperApiKey, whisperApiKeySet, whisperApiBaseUrl,
     xunfeiAppid, xunfeiApiKey, xunfeiApiKeySet, xunfeiApiSecret, xunfeiApiSecretSet,
-    subtitleAsrEngine, subtitleFasterWhisperModel, subtitleWhisperApiModel, subtitleTargetLanguage,
+    subtitleAsrEngine, subtitleFasterWhisperModel, subtitleWhisperApiModel, subtitleSourceLanguage, subtitleTargetLanguage,
     setAdminToken, loadSettings, saveSettings,
   }
 })

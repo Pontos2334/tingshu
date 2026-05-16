@@ -48,14 +48,18 @@ def generate_content(segments: list[dict], fmt: str, variant: str) -> str:
 def _get_text(seg: dict, variant: str) -> str:
     original = seg.get("original_text", seg.get("text", ""))
     translated = seg.get("translated_text", "")
+    polished = seg.get("polished_text", "")
+    source_text = polished or original
     if variant == "original":
         return original
+    elif variant == "polished":
+        return source_text
     elif variant == "translated":
-        return translated or original
+        return translated or source_text
     elif variant == "bilingual":
         if translated:
-            return f"{translated}\n{original}"
-        return original
+            return f"{translated}\n{source_text}"
+        return source_text
     return original
 
 

@@ -19,6 +19,14 @@ async def init_db():
         migrations = [
             ("audio_records", "is_merged", "BOOLEAN DEFAULT 0"),
             ("audio_records", "source_group_id", "VARCHAR"),
+            ("subtitle_projects", "source_language", "VARCHAR DEFAULT 'auto'"),
+            ("subtitle_projects", "error_step", "VARCHAR"),
+            ("subtitle_projects", "error_code", "VARCHAR"),
+            ("subtitle_projects", "error_detail", "TEXT"),
+            ("subtitle_segments", "polished_text", "TEXT"),
+            ("subtitle_segments", "original_edited", "BOOLEAN DEFAULT 0"),
+            ("subtitle_segments", "polished_edited", "BOOLEAN DEFAULT 0"),
+            ("subtitle_segments", "translated_edited", "BOOLEAN DEFAULT 0"),
         ]
         for table, column, col_type in migrations:
             try:

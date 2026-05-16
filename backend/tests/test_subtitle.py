@@ -3,13 +3,19 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+import httpx
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.database import Base
 from app.db_models import SubtitleProject, SubtitleSegment, SubtitleOutput
+from app.services import subtitle_llm_service
+from app.services.subtitle_asr_service import build_audio_transcriptions_url
 from app.services.subtitle_export_service import generate_srt, generate_vtt, generate_txt, parse_srt
+from app.services.subtitle_llm_service import SubtitleLLMError, build_chat_completions_url
+from app.services.subtitle_pipeline_service import SegmentCounts, normalize_target_step, plan_pipeline_steps
+from app.services.subtitle_translator_service import translate_segments
 
 
 @pytest_asyncio.fixture
@@ -141,3 +147,116 @@ async def test_subtitle_output(db_session):
     assert len(outputs) == 1
     assert outputs[0].format == "srt"
     assert outputs[0].variant == "bilingual"
+
+
+# ── Pipeline planning tests ───────────────────────────
+
+def test_normalize_legacy_subtitle_targets():
+    assert normalize_target_step("polish") == "translate_polish"
+    assert normalize_target_step("polish_no_translate") == "polish_source"
+    assert normalize_target_step("translate") == "translate"
+
+
+def test_pipeline_plan_for_srt_translate_skips_transcribe_and_gpu():
+    project = SubtitleProject(name="SRT", asr_engine="whisper")
+    steps = plan_pipeline_steps(project, SegmentCounts(total=2), "translate")
+    assert steps == ["translate"]
+
+
+def test_pipeline_plan_adds_missing_video_prerequisites():
+    project = SubtitleProject(name="视频", video_path="video.mp4", asr_engine="whisper")
+    steps = plan_pipeline_steps(project, SegmentCounts(total=0), "translate_polish")
+    assert steps == ["extract", "transcribe", "polish", "translate"]
+
+
+def test_pipeline_plan_uses_uploaded_audio_without_extract():
+    project = SubtitleProject(name="音频", audio_path="audio.wav", asr_engine="whisper_api")
+    steps = plan_pipeline_steps(project, SegmentCounts(total=0), "polish_source")
+    assert steps == ["transcribe", "polish"]
+
+
+def test_pipeline_plan_rejects_missing_source():
+    project = SubtitleProject(name="空项目")
+    with pytest.raises(ValueError, match="请先上传"):
+        plan_pipeline_steps(project, SegmentCounts(total=0), "translate")
+
+
+# ── LLM call and parsing tests ────────────────────────
+
+def test_openai_compatible_urls_do_not_duplicate_v1():
+    assert build_chat_completions_url("https://api.deepseek.com/v1") == "https://api.deepseek.com/v1/chat/completions"
+    assert build_audio_transcriptions_url("https://api.openai.com/v1") == "https://api.openai.com/v1/audio/transcriptions"
+
+
+def _mock_async_client(monkeypatch, handler):
+    transport = httpx.MockTransport(handler)
+    original_client = httpx.AsyncClient
+
+    def factory(*args, **kwargs):
+        return original_client(transport=transport, timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr(subtitle_llm_service.httpx, "AsyncClient", factory)
+
+
+@pytest.mark.asyncio
+async def test_translate_segments_parses_json_array(monkeypatch):
+    seen_urls = []
+
+    def handler(request):
+        seen_urls.append(str(request.url))
+        return httpx.Response(200, json={"choices": [{"message": {"content": '["你好", "再见"]'}}]})
+
+    _mock_async_client(monkeypatch, handler)
+    result = await translate_segments(
+        [
+            {"start": 0.0, "end": 1.0, "text": "Hello"},
+            {"start": 1.0, "end": 2.0, "text": "Bye"},
+        ],
+        "sk-test",
+        "https://api.deepseek.com/v1",
+    )
+
+    assert [item["text"] for item in result] == ["你好", "再见"]
+    assert seen_urls == ["https://api.deepseek.com/v1/chat/completions"]
+
+
+@pytest.mark.asyncio
+async def test_translate_segments_retries_when_count_mismatches(monkeypatch):
+    calls = 0
+
+    def handler(request):
+        nonlocal calls
+        calls += 1
+        content = '["只有一条"]' if calls == 1 else '["第一条", "第二条"]'
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    _mock_async_client(monkeypatch, handler)
+    result = await translate_segments(
+        [
+            {"start": 0.0, "end": 1.0, "text": "one"},
+            {"start": 1.0, "end": 2.0, "text": "two"},
+        ],
+        "sk-test",
+        "https://api.deepseek.com/v1",
+    )
+
+    assert calls == 2
+    assert [item["text"] for item in result] == ["第一条", "第二条"]
+
+
+@pytest.mark.asyncio
+async def test_translate_segments_raises_http_error_with_response_detail(monkeypatch):
+    def handler(request):
+        return httpx.Response(429, text="rate limit exceeded")
+
+    _mock_async_client(monkeypatch, handler)
+
+    with pytest.raises(SubtitleLLMError) as exc_info:
+        await translate_segments(
+            [{"start": 0.0, "end": 1.0, "text": "hello"}],
+            "sk-test",
+            "https://api.deepseek.com/v1",
+        )
+
+    assert exc_info.value.code == "llm_http_error"
+    assert "rate limit" in exc_info.value.detail
